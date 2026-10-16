@@ -1,5 +1,7 @@
 import { AgentResponse } from '@/types';
-import { parseLocalFallback } from './local-parser';
+import { parseLocalFallback, detectCommand } from './local-parser';
+
+export { detectCommand };
 
 const GEMINI_SCHEMA = {
   type: 'object' as const,
@@ -78,7 +80,7 @@ Siempre responde SOLO con el JSON estructurado. No agregues texto adicional.`;
 
 /**
  * Interpreta una operación en lenguaje natural usando Gemini 2.5 Flash con salida estructurada,
- * o conmuta de forma silenciosa y automática al parser local de respaldo.
+ * o conmuta inmediatamente al parser local robusto si Gemini demora más de 3.5s o falla.
  */
 export async function parseOperationWithAIOrFallback(
   text: string,
@@ -87,11 +89,31 @@ export async function parseOperationWithAIOrFallback(
   success: boolean;
   operation?: AgentResponse;
   source: 'gemini' | 'local';
+  isCommand?: boolean;
+  command?: string;
   error?: string;
 }> {
+  // 1. Verificar primero si es un comando especial (resumen, anular)
+  if (text) {
+    const cmd = detectCommand(text);
+    if (cmd.isCommand) {
+      return {
+        success: true,
+        source: 'local',
+        isCommand: true,
+        command: cmd.command,
+        operation: {
+          type: 'COMPRA',
+          isCommand: true,
+          command: cmd.command,
+        },
+      };
+    }
+  }
+
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // 1. Intentar con Gemini 2.5 Flash si hay API Key configurada
+  // 2. Intentar con Gemini 2.5 Flash con un límite estricto de tiempo (3.5 segundos)
   if (apiKey && text) {
     try {
       const { GoogleGenAI } = await import('@google/genai');
@@ -110,14 +132,22 @@ export async function parseOperationWithAIOrFallback(
         });
       }
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [{ role: 'user', parts }],
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: GEMINI_SCHEMA,
-        },
-      });
+      // Timeout de 3500ms para no demorar al usuario ni a la API de WhatsApp
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Gemini timeout')), 3500)
+      );
+
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model: 'gemini-2.5-flash',
+          contents: [{ role: 'user', parts }],
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: GEMINI_SCHEMA,
+          },
+        }),
+        timeoutPromise,
+      ]);
 
       const resultText = response.text;
       if (resultText) {
@@ -127,16 +157,22 @@ export async function parseOperationWithAIOrFallback(
         }
       }
     } catch {
-      // Conmutar silenciosamente al parser local
+      // Conmutar instantáneamente al parser local
     }
   }
 
-  // 2. Parser local inteligente de respaldo
+  // 3. Parser local inteligente e infalible de respaldo
   if (text) {
     try {
       const parsed = parseLocalFallback(text);
       if (parsed) {
-        return { success: true, operation: parsed, source: 'local' };
+        return {
+          success: true,
+          operation: parsed,
+          source: 'local',
+          isCommand: parsed.isCommand,
+          command: parsed.command,
+        };
       }
     } catch (parserErr) {
       console.warn('Local parser warning:', parserErr);

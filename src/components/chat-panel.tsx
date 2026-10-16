@@ -87,7 +87,20 @@ export function ChatPanel() {
 
       const result = await response.json();
 
-      if (result.success && result.operation) {
+      if (result.success && result.reply) {
+        // Direct bot reply (e.g., daily summary command or undo confirmation)
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === processingId
+              ? {
+                  ...m,
+                  text: result.reply,
+                  isProcessing: false,
+                }
+              : m
+          )
+        );
+      } else if (result.success && result.operation && !result.operation.isCommand) {
         const agentOp: AgentResponse = result.operation;
 
         // Build the operation for the store

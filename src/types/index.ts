@@ -77,6 +77,9 @@ export interface AgentResponse {
   totalPYG?: number;
   account?: Account;
   description?: string;
+  isCommand?: boolean;
+  command?: string;
+  reply?: string;
 }
 
 export interface DailyReport {
