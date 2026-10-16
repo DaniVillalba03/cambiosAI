@@ -5,17 +5,20 @@ import { formatPYG, formatCurrency, generateId } from '@/lib/utils';
 import { CURRENCIES, CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, BANK_ACCOUNTS, Account, Currency } from '@/types';
 
 // Helper to send message via Meta WhatsApp Cloud API
-async function sendWhatsAppMessage(to: string, text: string) {
+async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: string) {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const targetPhoneId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
-  if (!token || !phoneNumberId) {
-    console.log(`[WhatsApp Simulator -> ${to}]:\n${text}`);
+  if (!token || !targetPhoneId) {
+    console.warn(`[WhatsApp Simulator / Missing Credentials] -> to: ${to}, phone_number_id: ${targetPhoneId}`);
+    console.log(`Mensaje:\n${text}`);
     return;
   }
 
+  const endpoint = `https://graph.facebook.com/v22.0/${targetPhoneId}/messages`;
+
   try {
-    const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -28,12 +31,22 @@ async function sendWhatsAppMessage(to: string, text: string) {
         text: { body: text },
       }),
     });
+
+    const resJson = await res.json().catch(() => null);
+
     if (!res.ok) {
-      const err = await res.json();
-      console.warn('WhatsApp API send error:', err);
+      console.error('❌ Error respondiendo a Meta WhatsApp Cloud API:');
+      console.error(`- Endpoint: ${endpoint}`);
+      console.error(`- Phone Number ID: ${targetPhoneId}`);
+      console.error(`- Destinatario (to): ${to}`);
+      console.error('- Respuesta Graph API:', JSON.stringify(resJson, null, 2));
+    } else {
+      console.log(`✅ Respuesta enviada con éxito a WhatsApp (${to}) usando phone_number_id (${targetPhoneId})`);
     }
   } catch (error) {
-    console.warn('Error sending WhatsApp message:', error);
+    console.error('❌ Excepción enviando a Meta WhatsApp Cloud API:', error);
+    console.error(`- Phone Number ID: ${targetPhoneId}`);
+    console.error(`- Destinatario (to): ${to}`);
   }
 }
 
@@ -63,6 +76,16 @@ export async function POST(request: NextRequest) {
     const changes = entry?.changes?.[0];
     const value = changes?.value;
     const messages = value?.messages;
+
+    const metadata = value?.metadata;
+    const phoneNumberId = metadata?.phone_number_id || process.env.WHATSAPP_PHONE_NUMBER_ID;
+
+    console.log('📱 Webhook metadata recibida:', JSON.stringify({
+      display_phone_number: metadata?.display_phone_number,
+      phone_number_id_recibido: metadata?.phone_number_id,
+      phone_number_id_final: phoneNumberId,
+      has_messages: Boolean(messages && messages.length > 0)
+    }));
 
     if (!messages || messages.length === 0) {
       return NextResponse.json({ status: 'no_messages' }, { status: 200 });
@@ -151,7 +174,7 @@ export async function POST(request: NextRequest) {
       msg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
       msg += `✅ Generado automáticamente por CambiosAI`;
 
-      await sendWhatsAppMessage(from, msg);
+      await sendWhatsAppMessage(from, msg, phoneNumberId);
       return NextResponse.json({ status: 'success', command: 'resumen' });
     }
 
@@ -165,7 +188,7 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       if (!lastTxs || lastTxs.length === 0) {
-        await sendWhatsAppMessage(from, '⚠️ No hay operaciones registradas para anular.');
+        await sendWhatsAppMessage(from, '⚠️ No hay operaciones registradas para anular.', phoneNumberId);
         return NextResponse.json({ status: 'no_transactions_to_undo' });
       }
 
@@ -250,7 +273,7 @@ export async function POST(request: NextRequest) {
       undoMsg += `• Cuenta: ${lastOp.account}\n`;
       undoMsg += `Todos los saldos y stocks han vuelto a su estado anterior.`;
 
-      await sendWhatsAppMessage(from, undoMsg);
+      await sendWhatsAppMessage(from, undoMsg, phoneNumberId);
       return NextResponse.json({ status: 'undone', opNumber: lastOp.operation_number });
     }
 
@@ -277,7 +300,8 @@ export async function POST(request: NextRequest) {
       if (!parsed) {
         await sendWhatsAppMessage(
           from,
-          `❓ No pude entender la operación.\n\nEjemplos válidos:\n• *"Compré 500 dólares a 7750 por Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *"resumen"* (para cierre de caja)\n• *"anular"* (para deshacer la última)`
+          `❓ No pude entender la operación.\n\nEjemplos válidos:\n• *"Compré 500 dólares a 7750 por Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *"resumen"* (para cierre de caja)\n• *"anular"* (para deshacer la última)`,
+          phoneNumberId
         );
         return NextResponse.json({ status: 'unrecognized' });
       }
@@ -414,7 +438,7 @@ export async function POST(request: NextRequest) {
 
       confirmMsg += `\n\n_Sincronizado en tiempo real con CambiosAI Web_`;
 
-      await sendWhatsAppMessage(from, confirmMsg);
+      await sendWhatsAppMessage(from, confirmMsg, phoneNumberId);
     }
 
     return NextResponse.json({ status: 'processed' }, { status: 200 });
