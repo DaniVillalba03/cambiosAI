@@ -1,20 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { parseLocalFallback } from '@/lib/local-parser';
+import { parseOperationWithAIOrFallback } from '@/lib/agent-service';
 import { formatPYG, formatCurrency, generateId } from '@/lib/utils';
-import { CURRENCIES, CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, BANK_ACCOUNTS, Account, Currency } from '@/types';
+import { CURRENCIES, CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, Currency } from '@/types';
 
-// Helper to send message via Meta WhatsApp Cloud API
+/**
+ * Envía un mensaje de texto formateado a través de Meta WhatsApp Cloud API
+ */
 async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: string) {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const targetPhoneId = phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
 
   if (!token || !targetPhoneId) {
-    console.warn(`[WhatsApp Simulator / Missing Credentials] -> to: ${to}, phone_number_id: ${targetPhoneId}`);
-    console.log(`Mensaje:\n${text}`);
+    console.warn(`[WhatsApp Notice] Falta WHATSAPP_ACCESS_TOKEN o phone_number_id (to: ${to})`);
+    console.log(`Mensaje no enviado a API Graph:\n${text}`);
     return;
   }
 
+  // Limpiar número del destinatario (solo dígitos)
+  const cleanTo = to.replace(/\D/g, '');
   const endpoint = `https://graph.facebook.com/v22.0/${targetPhoneId}/messages`;
 
   try {
@@ -26,9 +30,13 @@ async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: str
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
-        to,
+        recipient_type: 'individual',
+        to: cleanTo,
         type: 'text',
-        text: { body: text },
+        text: {
+          preview_url: false,
+          body: text,
+        },
       }),
     });
 
@@ -37,20 +45,20 @@ async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: str
     if (!res.ok) {
       console.error('❌ Error respondiendo a Meta WhatsApp Cloud API:');
       console.error(`- Endpoint: ${endpoint}`);
-      console.error(`- Phone Number ID: ${targetPhoneId}`);
-      console.error(`- Destinatario (to): ${to}`);
+      console.error(`- Phone Number ID usado: ${targetPhoneId}`);
+      console.error(`- Destinatario (to): ${cleanTo}`);
       console.error('- Respuesta Graph API:', JSON.stringify(resJson, null, 2));
     } else {
-      console.log(`✅ Respuesta enviada con éxito a WhatsApp (${to}) usando phone_number_id (${targetPhoneId})`);
+      console.log(`✅ Respuesta enviada con éxito a WhatsApp (${cleanTo}) usando phone_number_id (${targetPhoneId})`);
     }
   } catch (error) {
     console.error('❌ Excepción enviando a Meta WhatsApp Cloud API:', error);
-    console.error(`- Phone Number ID: ${targetPhoneId}`);
-    console.error(`- Destinatario (to): ${to}`);
+    console.error(`- Phone Number ID usado: ${targetPhoneId}`);
+    console.error(`- Destinatario (to): ${cleanTo}`);
   }
 }
 
-// 1. GET: Webhook Verification
+// 1. GET: Verificación del Webhook de Meta
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const mode = searchParams.get('hub.mode');
@@ -60,14 +68,14 @@ export async function GET(request: NextRequest) {
   const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || 'cambios_papa_2026';
 
   if (mode === 'subscribe' && token === verifyToken) {
-    console.log('WhatsApp webhook verified successfully');
+    console.log('✅ WhatsApp webhook verified successfully');
     return new NextResponse(challenge, { status: 200 });
   }
 
   return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
-// 2. POST: Webhook Events (Messages)
+// 2. POST: Recepción de Eventos y Mensajes de WhatsApp
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -84,9 +92,10 @@ export async function POST(request: NextRequest) {
       display_phone_number: metadata?.display_phone_number,
       phone_number_id_recibido: metadata?.phone_number_id,
       phone_number_id_final: phoneNumberId,
-      has_messages: Boolean(messages && messages.length > 0)
+      has_messages: Boolean(messages && messages.length > 0),
     }));
 
+    // Si es notificación de estado (sent, delivered, read) y no hay mensajes nuevos, responder 200
     if (!messages || messages.length === 0) {
       return NextResponse.json({ status: 'no_messages' }, { status: 200 });
     }
@@ -100,20 +109,22 @@ export async function POST(request: NextRequest) {
       text = message.text?.body || '';
     } else if (msgType === 'image') {
       text = message.image?.caption || '';
+    } else if (msgType === 'audio' || msgType === 'voice') {
+      await sendWhatsAppMessage(
+        from,
+        '🎙️ ¡Hola! Recibí tu nota de voz. Para registrar el cambio con máxima exactitud en este momento, por favor escribílo en texto (por ejemplo: "Compré 500 dólares a 7750 con Ueno").',
+        phoneNumberId
+      );
+      return NextResponse.json({ status: 'audio_notified' }, { status: 200 });
     }
 
     const trimmed = text.trim().toLowerCase();
 
     // ─── COMANDO ESPECIAL: RESUMEN / ARQUEO / CIERRE ───
     if (['resumen', 'arqueo', 'cierre'].includes(trimmed)) {
-      // 1. Cargar saldos de cuentas
       const { data: accounts } = await supabaseAdmin.from('accounts').select('*');
-      // 2. Cargar stocks
       const { data: stocks } = await supabaseAdmin.from('currency_stocks').select('*');
-      // 3. Cargar transacciones de hoy
-      const { data: transactions } = await supabaseAdmin
-        .from('transactions')
-        .select('*');
+      const { data: transactions } = await supabaseAdmin.from('transactions').select('*');
 
       const todayOps = (transactions || []).filter((tx: any) => {
         const d = new Date(tx.timestamp);
@@ -180,7 +191,6 @@ export async function POST(request: NextRequest) {
 
     // ─── COMANDO ESPECIAL: ANULAR / BORRAR ÚLTIMO ───
     if (['anular', 'borrar ultimo', 'anular ultimo', 'deshacer'].includes(trimmed)) {
-      // Obtener la última transacción
       const { data: lastTxs } = await supabaseAdmin
         .from('transactions')
         .select('*')
@@ -196,7 +206,6 @@ export async function POST(request: NextRequest) {
 
       // Revertir saldos en accounts
       if (lastOp.type === 'COMPRA' && lastOp.currency && lastOp.amount && lastOp.rate) {
-        // Revertir PYG a la cuenta
         const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', lastOp.account).single();
         if (acc) {
           await supabaseAdmin
@@ -204,7 +213,6 @@ export async function POST(request: NextRequest) {
             .update({ balance: Number(acc.balance) + Number(lastOp.total_pyg) })
             .eq('id', lastOp.account);
         }
-        // Restar divisa de efectivo
         const cashAcc = `Efectivo ${lastOp.currency}`;
         const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
         if (cash) {
@@ -213,7 +221,6 @@ export async function POST(request: NextRequest) {
             .update({ balance: Math.max(0, Number(cash.balance) - Number(lastOp.amount)) })
             .eq('id', cashAcc);
         }
-        // Actualizar stock
         const { data: stock } = await supabaseAdmin.from('currency_stocks').select('*').eq('currency', lastOp.currency).single();
         if (stock) {
           const newAmount = Math.max(0, Number(stock.amount) - Number(lastOp.amount));
@@ -225,7 +232,6 @@ export async function POST(request: NextRequest) {
             .eq('currency', lastOp.currency);
         }
       } else if (lastOp.type === 'VENTA' && lastOp.currency && lastOp.amount && lastOp.rate) {
-        // Restar PYG de la cuenta
         const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', lastOp.account).single();
         if (acc) {
           await supabaseAdmin
@@ -233,7 +239,6 @@ export async function POST(request: NextRequest) {
             .update({ balance: Number(acc.balance) - Number(lastOp.total_pyg) })
             .eq('id', lastOp.account);
         }
-        // Devolver divisa a efectivo
         const cashAcc = `Efectivo ${lastOp.currency}`;
         const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
         if (cash) {
@@ -242,7 +247,6 @@ export async function POST(request: NextRequest) {
             .update({ balance: Number(cash.balance) + Number(lastOp.amount) })
             .eq('id', cashAcc);
         }
-        // Devolver stock
         const { data: stock } = await supabaseAdmin.from('currency_stocks').select('*').eq('currency', lastOp.currency).single();
         if (stock) {
           const costOfSold = (Number(lastOp.rate) - (Number(lastOp.profit) || 0) / Number(lastOp.amount)) * Number(lastOp.amount);
@@ -264,7 +268,6 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // Eliminar de transactions
       await supabaseAdmin.from('transactions').delete().eq('id', lastOp.id);
 
       let undoMsg = `🗑️ *Operación #${lastOp.operation_number} Anulada con éxito!*\n`;
@@ -279,34 +282,24 @@ export async function POST(request: NextRequest) {
 
     // ─── PROCESAR OPERACIÓN CAMBIARIA / GASTO ───
     if (text) {
-      // 1. Interpretar operación
-      let parsed = parseLocalFallback(text);
+      console.log(`💬 Procesando texto recibido de ${from}: "${text}"`);
+      const parseResult = await parseOperationWithAIOrFallback(text);
 
-      // Si Gemini está disponible, intentar mejorar la interpretación
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (apiKey) {
-        try {
-          const { GoogleGenAI } = await import('@google/genai');
-          const ai = new GoogleGenAI({ apiKey });
-          const res = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: [{ role: 'user', parts: [{ text: `Extrae la operación del cambista: "${text}"` }] }],
-          });
-        } catch {
-          // Ignorar error de Gemini y continuar con parsed local
-        }
-      }
-
-      if (!parsed) {
+      if (!parseResult.success || !parseResult.operation) {
+        console.warn(`⚠️ No se pudo interpretar la operación: "${text}"`);
         await sendWhatsAppMessage(
           from,
-          `❓ No pude entender la operación.\n\nEjemplos válidos:\n• *"Compré 500 dólares a 7750 por Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *"resumen"* (para cierre de caja)\n• *"anular"* (para deshacer la última)`,
+          `❓ No pude entender la operación.\n\nEjemplos válidos:\n• *"Compré 500 dólares a 7750 con Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *"resumen"* (para cierre de caja)\n• *"anular"* (para deshacer la última)`,
           phoneNumberId
         );
-        return NextResponse.json({ status: 'unrecognized' });
+        return NextResponse.json({ status: 'unrecognized' }, { status: 200 });
       }
 
-      // 2. Obtener el siguiente número de operación
+      const parsed = parseResult.operation;
+      const targetAccount = parsed.account || 'Efectivo PYG';
+      console.log(`🤖 Operación interpretada (${parseResult.source}):`, JSON.stringify(parsed));
+
+      // Obtener el siguiente número de operación
       const { data: maxOpData } = await supabaseAdmin
         .from('transactions')
         .select('operation_number')
@@ -314,32 +307,38 @@ export async function POST(request: NextRequest) {
         .limit(1);
 
       const nextOpNumber = maxOpData && maxOpData.length > 0 ? Number(maxOpData[0].operation_number) + 1 : 1;
-
-      // 3. Calcular ganancia y actualizar en Supabase
       let profit: number | null = null;
       const opId = generateId();
 
       if (parsed.type === 'COMPRA' && parsed.currency && parsed.amount && parsed.rate) {
         const totalPYG = Math.round(parsed.amount * parsed.rate);
 
-        // Actualizar cuenta
-        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', parsed.account).single();
+        // 1. Actualizar cuenta PYG
+        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', targetAccount).single();
         const currentBal = acc ? Number(acc.balance) : 0;
-        await supabaseAdmin
-          .from('accounts')
-          .update({ balance: currentBal - totalPYG })
-          .eq('id', parsed.account);
+        await supabaseAdmin.from('accounts').upsert({
+          id: targetAccount,
+          name: targetAccount,
+          type: targetAccount.startsWith('Efectivo') ? 'CASH' : 'BANK',
+          currency: 'PYG',
+          balance: currentBal - totalPYG,
+          updated_at: new Date().toISOString(),
+        });
 
-        // Actualizar efectivo en divisa
+        // 2. Actualizar efectivo en divisa
         const cashAcc = `Efectivo ${parsed.currency}`;
         const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
         const currentCash = cash ? Number(cash.balance) : 0;
-        await supabaseAdmin
-          .from('accounts')
-          .update({ balance: currentCash + parsed.amount })
-          .eq('id', cashAcc);
+        await supabaseAdmin.from('accounts').upsert({
+          id: cashAcc,
+          name: cashAcc,
+          type: 'CASH',
+          currency: parsed.currency,
+          balance: currentCash + parsed.amount,
+          updated_at: new Date().toISOString(),
+        });
 
-        // Actualizar stock
+        // 3. Actualizar stock y PPP
         const { data: stock } = await supabaseAdmin.from('currency_stocks').select('*').eq('currency', parsed.currency).single();
         const curAmount = stock ? Number(stock.amount) : 0;
         const curCost = stock ? Number(stock.total_cost_pyg) : 0;
@@ -347,10 +346,13 @@ export async function POST(request: NextRequest) {
         const newCost = curCost + totalPYG;
         const newAvg = newAmount > 0 ? newCost / newAmount : 0;
 
-        await supabaseAdmin
-          .from('currency_stocks')
-          .update({ amount: newAmount, total_cost_pyg: newCost, average_cost: newAvg })
-          .eq('currency', parsed.currency);
+        await supabaseAdmin.from('currency_stocks').upsert({
+          currency: parsed.currency,
+          amount: newAmount,
+          total_cost_pyg: newCost,
+          average_cost: newAvg,
+          updated_at: new Date().toISOString(),
+        });
       } else if (parsed.type === 'VENTA' && parsed.currency && parsed.amount && parsed.rate) {
         const totalPYG = Math.round(parsed.amount * parsed.rate);
 
@@ -359,45 +361,60 @@ export async function POST(request: NextRequest) {
         const avgCost = stock ? Number(stock.average_cost) : 0;
         profit = Math.round((parsed.rate - avgCost) * parsed.amount);
 
-        // Actualizar cuenta
-        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', parsed.account).single();
+        // 1. Actualizar cuenta PYG
+        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', targetAccount).single();
         const currentBal = acc ? Number(acc.balance) : 0;
-        await supabaseAdmin
-          .from('accounts')
-          .update({ balance: currentBal + totalPYG })
-          .eq('id', parsed.account);
+        await supabaseAdmin.from('accounts').upsert({
+          id: targetAccount,
+          name: targetAccount,
+          type: targetAccount.startsWith('Efectivo') ? 'CASH' : 'BANK',
+          currency: 'PYG',
+          balance: currentBal + totalPYG,
+          updated_at: new Date().toISOString(),
+        });
 
-        // Actualizar efectivo en divisa
+        // 2. Actualizar efectivo en divisa
         const cashAcc = `Efectivo ${parsed.currency}`;
         const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
         const currentCash = cash ? Number(cash.balance) : 0;
-        await supabaseAdmin
-          .from('accounts')
-          .update({ balance: Math.max(0, currentCash - parsed.amount) })
-          .eq('id', cashAcc);
+        await supabaseAdmin.from('accounts').upsert({
+          id: cashAcc,
+          name: cashAcc,
+          type: 'CASH',
+          currency: parsed.currency,
+          balance: Math.max(0, currentCash - parsed.amount),
+          updated_at: new Date().toISOString(),
+        });
 
-        // Reducir stock
+        // 3. Reducir stock y costo
         if (stock) {
           const costOfSold = avgCost * parsed.amount;
           const newAmount = Math.max(0, Number(stock.amount) - parsed.amount);
           const newCost = Math.max(0, Number(stock.total_cost_pyg) - costOfSold);
           const newAvg = newAmount > 0 ? newCost / newAmount : 0;
-          await supabaseAdmin
-            .from('currency_stocks')
-            .update({ amount: newAmount, total_cost_pyg: newCost, average_cost: newAvg })
-            .eq('currency', parsed.currency);
+          await supabaseAdmin.from('currency_stocks').upsert({
+            currency: parsed.currency,
+            amount: newAmount,
+            total_cost_pyg: newCost,
+            average_cost: newAvg,
+            updated_at: new Date().toISOString(),
+          });
         }
       } else if (parsed.type === 'GASTO') {
-        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', parsed.account).single();
+        const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', targetAccount).single();
         const currentBal = acc ? Number(acc.balance) : 0;
-        await supabaseAdmin
-          .from('accounts')
-          .update({ balance: currentBal - (parsed.totalPYG || 0) })
-          .eq('id', parsed.account);
+        await supabaseAdmin.from('accounts').upsert({
+          id: targetAccount,
+          name: targetAccount,
+          type: targetAccount.startsWith('Efectivo') ? 'CASH' : 'BANK',
+          currency: 'PYG',
+          balance: currentBal - (parsed.totalPYG || 0),
+          updated_at: new Date().toISOString(),
+        });
       }
 
-      // Guardar en transactions
-      await supabaseAdmin.from('transactions').insert({
+      // Guardar en tabla transactions de Supabase
+      const { error: txErr } = await supabaseAdmin.from('transactions').insert({
         id: opId,
         operation_number: nextOpNumber,
         timestamp: new Date().toISOString(),
@@ -405,11 +422,17 @@ export async function POST(request: NextRequest) {
         currency: parsed.currency || null,
         amount: parsed.amount || null,
         rate: parsed.rate || null,
-        total_pyg: parsed.totalPYG || 0,
-        account: parsed.account || 'Efectivo PYG',
+        total_pyg: parsed.totalPYG || (parsed.amount && parsed.rate ? Math.round(parsed.amount * parsed.rate) : 0),
+        account: targetAccount,
         profit,
         description: parsed.description || null,
       });
+
+      if (txErr) {
+        console.error('❌ Error guardando transacción en Supabase:', txErr);
+      } else {
+        console.log(`💾 Transacción #${nextOpNumber} guardada en Supabase con éxito`);
+      }
 
       // 4. Enviar confirmación por WhatsApp
       let confirmMsg = `✅ *¡Operación #${nextOpNumber} Guardada!*\n\n`;
@@ -418,7 +441,7 @@ export async function POST(request: NextRequest) {
         confirmMsg += `📋 *Tipo:* Gasto Operativo\n`;
         confirmMsg += `💰 *Monto:* ${formatPYG(parsed.totalPYG || 0)}\n`;
         if (parsed.description) confirmMsg += `📝 *Concepto:* ${parsed.description}\n`;
-        confirmMsg += `🏦 *Cuenta:* ${parsed.account || 'Efectivo PYG'}\n`;
+        confirmMsg += `🏦 *Cuenta:* ${targetAccount}\n`;
       } else {
         const flag = parsed.currency ? CURRENCY_FLAGS[parsed.currency] : '';
         const symbol = parsed.currency ? CURRENCY_SYMBOLS[parsed.currency] : '';
@@ -428,8 +451,8 @@ export async function POST(request: NextRequest) {
         confirmMsg += `${flag} *Divisa:* ${label} (${parsed.currency})\n`;
         confirmMsg += `💵 *Monto:* ${symbol} ${formatCurrency(parsed.amount || 0)}\n`;
         confirmMsg += `📊 *Cotización:* Gs. ${formatCurrency(parsed.rate || 0, 0)}\n`;
-        confirmMsg += `💰 *Total:* ${formatPYG(parsed.totalPYG || 0)}\n`;
-        confirmMsg += `🏦 *Cuenta:* ${parsed.account || 'Efectivo PYG'}\n`;
+        confirmMsg += `💰 *Total:* ${formatPYG(parsed.totalPYG || (parsed.amount && parsed.rate ? Math.round(parsed.amount * parsed.rate) : 0))}\n`;
+        confirmMsg += `🏦 *Cuenta:* ${targetAccount}\n`;
 
         if (profit !== null && profit !== undefined) {
           confirmMsg += `\n${profit >= 0 ? '🟢' : '🔴'} *Ganancia Cambiaria:* ${profit >= 0 ? '+' : ''}${formatPYG(profit)}`;
@@ -443,7 +466,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ status: 'processed' }, { status: 200 });
   } catch (error) {
-    console.error('WhatsApp webhook processing error:', error);
+    console.error('❌ Error crítico en WhatsApp webhook:', error);
     return NextResponse.json({ status: 'error' }, { status: 200 });
   }
 }
