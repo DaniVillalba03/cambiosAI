@@ -1,6 +1,8 @@
-import React from 'react';
+'use client';
+
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Wallet, Banknote } from 'lucide-react';
+import { Wallet } from 'lucide-react';
 
 interface BankLogoProps {
   account: string;
@@ -23,8 +25,55 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     lg: 'rounded-2xl',
   };
 
+  const acc = (account || '').toLowerCase();
+  let slug = '';
+  if (acc.includes('ueno')) slug = 'ueno';
+  else if (acc.includes('itau') || acc.includes('itaú')) slug = 'itau';
+  else if (acc.includes('familiar')) slug = 'familiar';
+  else if (acc.includes('bnf') || acc.includes('fomento')) slug = 'bnf';
+  else if (acc.includes('continental')) slug = 'continental';
+  else if (acc.includes('efectivo') || acc.includes('pyg')) slug = 'efectivo';
+
+  // Intenta primero cargar el PNG cargado por el usuario en /banks/${slug}.png
+  // Si no existe, cae automáticamente al SVG /banks/${slug}.svg
+  // Si ambos fallan, cae al Isotipo CSS vectorizado interno
+  const [imgSrc, setImgSrc] = useState<string>(slug ? `/banks/${slug}.png` : '');
+  const [failedAll, setFailedAll] = useState(false);
+
+  const handleImageError = () => {
+    if (imgSrc.endsWith('.png')) {
+      setImgSrc(`/banks/${slug}.svg`);
+    } else {
+      setFailedAll(true);
+    }
+  };
+
+  if (slug && !failedAll && imgSrc) {
+    return (
+      <div
+        className={cn(
+          'relative overflow-hidden shrink-0 flex items-center justify-center select-none shadow-sm transition-transform duration-200 bg-surface-2/40 border border-white/5',
+          sizeClasses[size],
+          roundedClasses[size],
+          className
+        )}
+        title={account}
+      >
+        <img
+          src={imgSrc}
+          alt={account}
+          onError={handleImageError}
+          className="w-full h-full object-contain p-0.5"
+          loading="lazy"
+        />
+      </div>
+    );
+  }
+
+  // ─── Isotipos Vectoriales / CSS de Respaldo ───
+
   // Ueno Bank - Violeta/Indigo característico con "u."
-  if (account === 'Ueno Bank' || account.toLowerCase().includes('ueno')) {
+  if (acc.includes('ueno')) {
     return (
       <div
         className={cn(
@@ -44,7 +93,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   }
 
   // Itaú - Emblemático fondo naranja con "i" / "itau"
-  if (account === 'Itaú' || account.toLowerCase().includes('itau') || account.toLowerCase().includes('itaú')) {
+  if (acc.includes('itau') || acc.includes('itaú')) {
     return (
       <div
         className={cn(
@@ -64,7 +113,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   }
 
   // Banco Familiar - Azul y cyan corporativo con "F"
-  if (account === 'Banco Familiar' || account.toLowerCase().includes('familiar')) {
+  if (acc.includes('familiar')) {
     return (
       <div
         className={cn(
@@ -84,7 +133,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   }
 
   // BNF - Banco Nacional de Fomento (Bordó/Rojo institucional)
-  if (account === 'BNF' || account.toLowerCase().includes('bnf') || account.toLowerCase().includes('fomento')) {
+  if (acc.includes('bnf') || acc.includes('fomento')) {
     return (
       <div
         className={cn(
@@ -104,7 +153,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   }
 
   // Continental - Dorado/Ámbar con logo circular
-  if (account === 'Continental' || account.toLowerCase().includes('continental')) {
+  if (acc.includes('continental')) {
     return (
       <div
         className={cn(
@@ -124,7 +173,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   }
 
   // Efectivo PYG
-  if (account.includes('PYG') || account.includes('Efectivo') || account === 'Efectivo Gs.') {
+  if (acc.includes('pyg') || acc.includes('efectivo') || account === 'Efectivo Gs.') {
     return (
       <div
         className={cn(
