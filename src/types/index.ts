@@ -80,6 +80,7 @@ export interface AgentResponse {
   isCommand?: boolean;
   command?: string;
   reply?: string;
+  transcription?: string;
 }
 
 export interface DailyReport {

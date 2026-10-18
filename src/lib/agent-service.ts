@@ -52,50 +52,71 @@ const GEMINI_SCHEMA = {
   required: ['type', 'account', 'totalPYG'],
 };
 
-const SYSTEM_PROMPT = `Eres el asistente de un cambista (operador cambiario) en Paraguay. Tu trabajo es interpretar mensajes en español paraguayo sobre operaciones de cambio de divisas y extraer la información estructurada.
+const SYSTEM_PROMPT = `Eres el asistente inteligente de un cambista (operador cambiario y financiero) en Paraguay. Tu trabajo es interpretar mensajes de texto, comprobantes de pago/transferencias bancarias (imágenes) y notas de voz (audios) en español paraguayo, y extraer la información estructurada de la transacción.
 
 REGLAS DE NEGOCIO:
 - Moneda base: Guaraníes (PYG)
 - Divisas: USD (dólar), BRL (real brasileño), ARS (peso argentino), EUR (euro)
 - COMPRA: el cambista compra moneda extranjera (entra divisa, sale PYG)
 - VENTA: el cambista vende moneda extranjera (sale divisa, entra PYG)
-- GASTO: gasto personal u operativo en guaraníes
+- GASTO: gasto operativo, pago a proveedores o transferencias bancarias en guaraníes
 
-JERGA PARAGUAYA:
+COMPROBANTES DE PAGO Y TRANSFERENCIAS BANCARIAS (IMÁGENES):
+- Si el usuario envía una imagen de un comprobante de transferencia (SIPAP, extracto, ticket o recibo):
+  1. Identifica el banco o entidad emisora (ej. "Ueno Bank", "Itaú", "Banco Familiar", "BNF", "Continental").
+  2. Extrae el monto de la transferencia en Guaraníes (o divisa extranjera si el comprobante es en USD).
+  3. En "description", anota el beneficiario o concepto del comprobante (ej: "Transferencia a Juan Pérez - Ref #49281").
+  4. Si el comprobante muestra una transferencia realizada / débito / pago de servicio, clasifícalo como tipo "GASTO".
+  5. Si el usuario acompañó la imagen con un texto (ej: "compré 200 dólares con esta transferencia"), respeta la intención del usuario ("COMPRA" de 200 USD).
+
+NOTAS DE VOZ (AUDIOS):
+- Si el usuario envía un audio o nota de voz:
+  1. Escucha atentamente la dicción y modismos en español paraguayo.
+  2. Transcribe el audio completo en el campo "transcription".
+  3. Si el usuario pide un comando como "resumen del día", "cierre de caja" o "anular último", marca isCommand=true y command="resumen" o "anular".
+  4. Si el usuario dicta una operación cambiaria o gasto (ej: "Compré 500 dólares a 7800 por Familiar"), extrae la operación normalmente con type, currency, amount, rate, totalPYG y account.
+
+JERGA Y CUENTAS PARAGUAYAS:
 - "palo" = 1.000.000 guaraníes
 - "mil" o "lucas" = 1.000 guaraníes
-- "Ueno" = Ueno Bank
-- "Itaú" = Itaú
-- "Familiar" = Banco Familiar
-- "BNF" = BNF (Banco Nacional de Fomento)
-- "Continental" = Continental
-- Si no menciona cuenta, usar "Efectivo PYG"
+- Cuentas válidas: "Efectivo PYG", "Ueno Bank", "Itaú", "Banco Familiar", "BNF", "Continental"
+- Si no menciona banco o cuenta, usar "Efectivo PYG"
 - "en efectivo" o "cash" o "en mano" = "Efectivo PYG"
 
 CÁLCULOS:
 - totalPYG = amount * rate (para COMPRA y VENTA)
-- Para GASTO, totalPYG es el monto del gasto
+- Para GASTO, totalPYG es el monto de la transferencia o gasto
 
 Siempre responde SOLO con el JSON estructurado. No agregues texto adicional.`;
 
+export interface MediaInput {
+  imageBase64?: string;
+  imageMimeType?: string;
+  audioBase64?: string;
+  audioMimeType?: string;
+}
+
 /**
- * Interpreta una operación en lenguaje natural usando Gemini 2.5 Flash con salida estructurada,
- * o conmuta inmediatamente al parser local robusto si Gemini demora más de 3.5s o falla.
+ * Interpreta una operación en lenguaje natural, comprobante de pago (imagen) o nota de voz (audio)
+ * usando Gemini con salida estructurada, con respaldo inteligente local.
  */
 export async function parseOperationWithAIOrFallback(
-  text: string,
-  imageBase64?: string
+  text?: string,
+  media?: MediaInput | string
 ): Promise<{
   success: boolean;
   operation?: AgentResponse;
   source: 'gemini' | 'local';
   isCommand?: boolean;
   command?: string;
+  transcription?: string;
   error?: string;
 }> {
-  // 1. Verificar primero si es un comando especial (resumen, anular)
-  if (text) {
-    const cmd = detectCommand(text);
+  const cleanText = (text || '').trim();
+
+  // 1. Verificar primero si es un comando especial en texto directo (resumen, anular)
+  if (cleanText) {
+    const cmd = detectCommand(cleanText);
     if (cmd.isCommand) {
       return {
         success: true,
@@ -111,35 +132,64 @@ export async function parseOperationWithAIOrFallback(
     }
   }
 
+  // Normalizar media input
+  const mediaObj: MediaInput =
+    typeof media === 'string'
+      ? { imageBase64: media, imageMimeType: 'image/jpeg' }
+      : media || {};
+
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // 2. Intentar con Gemini 2.5 Flash con un límite estricto de tiempo (3.5 segundos)
-  if (apiKey && text) {
+  // 2. Procesamiento con Gemini Multimodal
+  if (apiKey && (cleanText || mediaObj.imageBase64 || mediaObj.audioBase64)) {
     try {
       const { GoogleGenAI } = await import('@google/genai');
       const ai = new GoogleGenAI({ apiKey });
 
-      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [
-        { text: `${SYSTEM_PROMPT}\n\nMensaje del cambista: "${text}"` },
-      ];
+      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
 
-      if (imageBase64) {
+      let userPrompt = SYSTEM_PROMPT;
+      let model = 'gemini-3.5-flash-lite';
+      let timeoutMs = 4000;
+
+      if (mediaObj.audioBase64) {
+        model = 'gemini-3.5-flash';
+        timeoutMs = 9000;
+        userPrompt += cleanText
+          ? `\n\nNota de voz del usuario con texto adjunto: "${cleanText}". Escucha el audio, transcríbelo en "transcription" y extrae la operación:`
+          : '\n\nNota de voz del usuario. Escucha atentamente el audio, transcríbelo en "transcription" y extrae la operación cambiaria o comando:';
+        parts.push({ text: userPrompt });
         parts.push({
           inlineData: {
-            mimeType: 'image/jpeg',
-            data: imageBase64,
+            mimeType: mediaObj.audioMimeType || 'audio/ogg',
+            data: mediaObj.audioBase64,
           },
         });
+      } else if (mediaObj.imageBase64) {
+        model = 'gemini-3.5-flash';
+        timeoutMs = 9000;
+        userPrompt += cleanText
+          ? `\n\nComprobante de pago o transferencia bancaria enviado por el usuario con mensaje: "${cleanText}". Analiza los datos del comprobante y extrae la operación:`
+          : '\n\nComprobante de pago o transferencia bancaria enviado por el usuario. Analiza el comprobante (banco, monto, destinatario/concepto) y extrae la operación:';
+        parts.push({ text: userPrompt });
+        parts.push({
+          inlineData: {
+            mimeType: mediaObj.imageMimeType || 'image/jpeg',
+            data: mediaObj.imageBase64,
+          },
+        });
+      } else {
+        userPrompt += `\n\nMensaje del cambista: "${cleanText}"`;
+        parts.push({ text: userPrompt });
       }
 
-      // Timeout de 3500ms para no demorar al usuario ni a la API de WhatsApp
       const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini timeout')), 3500)
+        setTimeout(() => reject(new Error('Gemini timeout')), timeoutMs)
       );
 
       const response = await Promise.race([
         ai.models.generateContent({
-          model: 'gemini-3.5-flash-lite',
+          model,
           contents: [{ role: 'user', parts }],
           config: {
             responseMimeType: 'application/json',
@@ -152,19 +202,37 @@ export async function parseOperationWithAIOrFallback(
       const resultText = response.text;
       if (resultText) {
         const parsed = JSON.parse(resultText) as AgentResponse;
+
+        // Si en el audio o comprobante se detectó un comando
+        if (parsed.isCommand && parsed.command) {
+          return {
+            success: true,
+            source: 'gemini',
+            isCommand: true,
+            command: parsed.command,
+            transcription: parsed.transcription,
+            operation: parsed,
+          };
+        }
+
         if (parsed.type && parsed.account) {
-          return { success: true, operation: parsed, source: 'gemini' };
+          return {
+            success: true,
+            operation: parsed,
+            source: 'gemini',
+            transcription: parsed.transcription,
+          };
         }
       }
-    } catch {
-      // Conmutar instantáneamente al parser local
+    } catch (aiErr) {
+      console.warn('⚠️ Gemini multimodal warning, evaluando fallback:', aiErr);
     }
   }
 
-  // 3. Parser local inteligente e infalible de respaldo
-  if (text) {
+  // 3. Parser local de respaldo si hay texto disponible
+  if (cleanText) {
     try {
-      const parsed = parseLocalFallback(text);
+      const parsed = parseLocalFallback(cleanText);
       if (parsed) {
         return {
           success: true,
@@ -182,6 +250,6 @@ export async function parseOperationWithAIOrFallback(
   return {
     success: false,
     source: 'local',
-    error: 'No pude entender la operación. Intentá con algo como: "Compré 500 dólares a 7750 por Ueno"',
+    error: 'No pude interpretar la operación o comprobante. Podés escribir por ejemplo: "Compré 500 dólares a 7750 por Ueno", mandar una foto del comprobante o dictar una nota de voz.',
   };
 }
