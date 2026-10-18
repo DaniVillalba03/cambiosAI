@@ -25,6 +25,7 @@ import {
   CurrencyStock,
 } from '@/types';
 import { formatPYG, formatCurrency, cn } from '@/lib/utils';
+import { BankLogo } from '@/components/bank-logo';
 
 interface AdjustCashModalProps {
   isOpen: boolean;
@@ -154,8 +155,9 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Efectivo Gs. */}
               <div className="bg-surface-2/50 border border-border/50 rounded-xl p-3">
-                <label className="text-xs text-gray-400 font-medium block mb-1">
-                  💵 Efectivo en Mano (Gs.)
+                <label className="text-xs text-gray-300 font-medium flex items-center gap-2 mb-2">
+                  <BankLogo account="Efectivo PYG" size="xs" />
+                  <span>Efectivo en Mano (Gs.)</span>
                 </label>
                 <input
                   type="number"
@@ -168,8 +170,9 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
               {/* Bancos */}
               {BANK_ACCOUNTS.map((bank) => (
                 <div key={bank} className="bg-surface-2/50 border border-border/50 rounded-xl p-3">
-                  <label className="text-xs text-gray-400 font-medium block mb-1">
-                    🏛️ {bank} (Gs.)
+                  <label className="text-xs text-gray-300 font-medium flex items-center gap-2 mb-2">
+                    <BankLogo account={bank} size="xs" />
+                    <span>{bank} (Gs.)</span>
                   </label>
                   <input
                     type="number"

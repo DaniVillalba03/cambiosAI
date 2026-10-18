@@ -22,6 +22,7 @@ import {
   BANK_COLORS,
 } from '@/types';
 import { formatPYG, formatCurrency, cn } from '@/lib/utils';
+import { BankLogo } from '@/components/bank-logo';
 
 export function ArqueoPanel() {
   const { state, todayOperations, todayProfit, todayExpenses } = useAppState();
@@ -179,30 +180,26 @@ export function ArqueoPanel() {
           Saldos en Cuentas (Gs.)
         </h3>
         <div className="space-y-2.5">
-          <div className="flex items-center justify-between p-3 bg-surface-2/40 rounded-xl border-l-2 border-green-500/30">
-            <div className="flex items-center gap-2">
-              <Banknote className="w-4 h-4 text-green-400" />
-              <span className="text-sm font-medium text-gray-300">Efectivo Gs.</span>
+          <div className="flex items-center justify-between p-3 bg-surface-2/40 hover:bg-surface-2/60 transition-colors rounded-xl border border-emerald-500/20">
+            <div className="flex items-center gap-3">
+              <BankLogo account="Efectivo PYG" size="sm" />
+              <span className="text-sm font-medium text-gray-200">Efectivo Gs.</span>
             </div>
-            <span className="text-lg font-bold text-green-400">
+            <span className="text-lg font-bold text-emerald-400 font-mono">
               {formatPYG(state.accountBalances['Efectivo PYG'])}
             </span>
           </div>
           {BANK_ACCOUNTS.map((bank) => {
-            const colors = BANK_COLORS[bank];
             return (
               <div
                 key={bank}
-                className={cn(
-                  'flex items-center justify-between p-3 bg-surface-2/40 rounded-xl border-l-2',
-                  colors?.accent || 'border-gray-500/30'
-                )}
+                className="flex items-center justify-between p-3 bg-surface-2/40 hover:bg-surface-2/60 transition-colors rounded-xl border border-white/5"
               >
-                <div className="flex items-center gap-2">
-                  <Landmark className={cn('w-4 h-4', colors?.text || 'text-gray-400')} />
-                  <span className="text-sm font-medium text-gray-300">{bank}</span>
+                <div className="flex items-center gap-3">
+                  <BankLogo account={bank} size="sm" />
+                  <span className="text-sm font-medium text-gray-200">{bank}</span>
                 </div>
-                <span className={cn('text-lg font-bold', colors?.text || 'text-gray-400')}>
+                <span className="text-lg font-bold text-gray-100 font-mono">
                   {formatPYG(state.accountBalances[bank])}
                 </span>
               </div>
