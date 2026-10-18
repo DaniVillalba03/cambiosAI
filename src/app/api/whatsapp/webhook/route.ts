@@ -113,6 +113,7 @@ function extractWhatsAppMessage(body: any): ExtractedMessage | null {
  * Envía un mensaje de texto formateado a través de Meta WhatsApp Cloud API
  */
 async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: string) {
+  const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const envPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const isDummyId = !phoneNumberId || phoneNumberId === '123456123' || phoneNumberId.length < 10;
   const targetPhoneId = isDummyId ? envPhoneId : phoneNumberId;
