@@ -10,6 +10,15 @@ interface BankLogoProps {
   className?: string;
 }
 
+const BANK_LOGO_CANDIDATES: Record<string, string[]> = {
+  ueno: ['/banks/uenobank.png', '/banks/ueno.png', '/banks/ueno.webp', '/banks/ueno.jpg'],
+  itau: ['/banks/bancoitau.png', '/banks/itau.png', '/banks/itau.webp', '/banks/itau.jpg'],
+  familiar: ['/banks/bancofamiliar.png', '/banks/familiar.png', '/banks/familiar.webp', '/banks/familiar.jpg'],
+  bnf: ['/banks/bnf.webp', '/banks/bnf.png', '/banks/bnf.jpg'],
+  continental: ['/banks/bancocontinental.jpg', '/banks/bancocontinental.png', '/banks/continental.jpg', '/banks/continental.png'],
+  efectivo: ['/banks/efectivo.svg', '/banks/efectivo.png', '/banks/efectivo.webp'],
+};
+
 export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   const sizeClasses = {
     xs: 'w-5 h-5 text-[9px]',
@@ -34,25 +43,26 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   else if (acc.includes('continental')) slug = 'continental';
   else if (acc.includes('efectivo') || acc.includes('pyg')) slug = 'efectivo';
 
-  // Intenta primero cargar el PNG cargado por el usuario en /banks/${slug}.png
-  // Si no existe, cae automáticamente al SVG /banks/${slug}.svg
-  // Si ambos fallan, cae al Isotipo CSS vectorizado interno
-  const [imgSrc, setImgSrc] = useState<string>(slug ? `/banks/${slug}.png` : '');
+  const candidates = slug ? (BANK_LOGO_CANDIDATES[slug] || []) : [];
+  const [candidateIdx, setCandidateIdx] = useState(0);
   const [failedAll, setFailedAll] = useState(false);
 
   const handleImageError = () => {
-    if (imgSrc.endsWith('.png')) {
-      setImgSrc(`/banks/${slug}.svg`);
+    if (candidateIdx < candidates.length - 1) {
+      setCandidateIdx((prev) => prev + 1);
     } else {
       setFailedAll(true);
     }
   };
 
-  if (slug && !failedAll && imgSrc) {
+  const currentSrc = candidates[candidateIdx];
+
+  // Si existe imagen cargada por el usuario en public/banks/
+  if (slug && !failedAll && currentSrc) {
     return (
       <div
         className={cn(
-          'relative overflow-hidden shrink-0 flex items-center justify-center select-none shadow-sm transition-transform duration-200 bg-surface-2/40 border border-white/5',
+          'relative overflow-hidden shrink-0 flex items-center justify-center select-none shadow-sm transition-transform duration-200 bg-white/95 border border-white/20',
           sizeClasses[size],
           roundedClasses[size],
           className
@@ -60,7 +70,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         title={account}
       >
         <img
-          src={imgSrc}
+          src={currentSrc}
           alt={account}
           onError={handleImageError}
           className="w-full h-full object-contain p-0.5"
@@ -70,9 +80,9 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     );
   }
 
-  // ─── Isotipos Vectoriales / CSS de Respaldo ───
+  // ─── Respaldo Isotipo CSS ───
 
-  // Ueno Bank - Violeta/Indigo característico con "u."
+  // Ueno Bank
   if (acc.includes('ueno')) {
     return (
       <div
@@ -92,7 +102,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     );
   }
 
-  // Itaú - Emblemático fondo naranja con "i" / "itau"
+  // Itaú
   if (acc.includes('itau') || acc.includes('itaú')) {
     return (
       <div
@@ -112,7 +122,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     );
   }
 
-  // Banco Familiar - Azul y cyan corporativo con "F"
+  // Banco Familiar
   if (acc.includes('familiar')) {
     return (
       <div
@@ -132,7 +142,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     );
   }
 
-  // BNF - Banco Nacional de Fomento (Bordó/Rojo institucional)
+  // BNF
   if (acc.includes('bnf') || acc.includes('fomento')) {
     return (
       <div
@@ -152,7 +162,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     );
   }
 
-  // Continental - Dorado/Ámbar con logo circular
+  // Continental
   if (acc.includes('continental')) {
     return (
       <div
