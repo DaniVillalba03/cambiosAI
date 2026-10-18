@@ -19,12 +19,22 @@ const BANK_LOGO_CANDIDATES: Record<string, string[]> = {
   efectivo: ['/banks/efectivo.svg', '/banks/efectivo.png', '/banks/efectivo.webp'],
 };
 
+// Configuración visual por banco para que cada logo ocupe el 100% de su placeholder armoniosamente
+const BANK_STYLES: Record<string, { bg: string; border: string; fit: 'object-cover' | 'object-contain'; p: string }> = {
+  ueno: { bg: 'bg-[#14E5A7]', border: 'border-emerald-400/30', fit: 'object-cover', p: 'p-0' },
+  itau: { bg: 'bg-[#EC7000]', border: 'border-orange-500/30', fit: 'object-cover', p: 'p-0' },
+  continental: { bg: 'bg-[#011E60]', border: 'border-blue-900/40', fit: 'object-cover', p: 'p-0' },
+  familiar: { bg: 'bg-white', border: 'border-sky-400/30', fit: 'object-contain', p: 'p-0.5' },
+  bnf: { bg: 'bg-white', border: 'border-red-400/30', fit: 'object-contain', p: 'p-0.5' },
+  efectivo: { bg: 'bg-emerald-600', border: 'border-emerald-400/30', fit: 'object-cover', p: 'p-0' },
+};
+
 export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   const sizeClasses = {
     xs: 'w-5 h-5 text-[9px]',
     sm: 'w-6 h-6 text-[10px]',
-    md: 'w-8 h-8 text-xs',
-    lg: 'w-10 h-10 text-sm',
+    md: 'w-10 h-10 text-xs',
+    lg: 'w-12 h-12 text-sm',
   };
 
   const roundedClasses = {
@@ -44,6 +54,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   else if (acc.includes('efectivo') || acc.includes('pyg')) slug = 'efectivo';
 
   const candidates = slug ? (BANK_LOGO_CANDIDATES[slug] || []) : [];
+  const styles = slug ? (BANK_STYLES[slug] || { bg: 'bg-white', border: 'border-white/10', fit: 'object-contain', p: 'p-0' }) : null;
   const [candidateIdx, setCandidateIdx] = useState(0);
   const [failedAll, setFailedAll] = useState(false);
 
@@ -58,11 +69,13 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
   const currentSrc = candidates[candidateIdx];
 
   // Si existe imagen cargada por el usuario en public/banks/
-  if (slug && !failedAll && currentSrc) {
+  if (slug && !failedAll && currentSrc && styles) {
     return (
       <div
         className={cn(
-          'relative overflow-hidden shrink-0 flex items-center justify-center select-none shadow-sm transition-transform duration-200 bg-white/95 border border-white/20',
+          'relative overflow-hidden shrink-0 flex items-center justify-center select-none shadow-sm transition-transform duration-200 border',
+          styles.bg,
+          styles.border,
           sizeClasses[size],
           roundedClasses[size],
           className
@@ -73,7 +86,11 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
           src={currentSrc}
           alt={account}
           onError={handleImageError}
-          className="w-full h-full object-contain p-0.5"
+          className={cn(
+            'w-full h-full',
+            styles.fit,
+            styles.p
+          )}
           loading="lazy"
         />
       </div>
