@@ -2,7 +2,14 @@ import { NextRequest, NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { parseOperationWithAIOrFallback } from '@/lib/agent-service';
 import { detectCommand } from '@/lib/local-parser';
-import { generateDailySummaryMessage, undoLastOperationMessage } from '@/lib/operations-helper';
+import {
+  generateDailySummaryMessage,
+  undoLastOperationMessage,
+  generateHelpMessage,
+  generateBalancesMessage,
+  generateStocksMessage,
+} from '@/lib/operations-helper';
+
 import { formatPYG, formatCurrency, generateId } from '@/lib/utils';
 import { CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS } from '@/types';
 
@@ -333,21 +340,40 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      // ─── COMANDO ESPECIAL EN TEXTO DIRECTO (RESUMEN / ANULAR) ───
+      // ─── COMANDOS DIRECTOS POR TEXTO (AYUDA / SALDOS / STOCK / RESUMEN / ANULAR) ───
       if (text && !mediaData) {
         const cmd = detectCommand(text);
-        if (cmd.isCommand && cmd.command === 'resumen') {
-          const summaryMsg = await generateDailySummaryMessage();
-          await sendWhatsAppMessage(from, summaryMsg, phoneNumberId);
-          console.log('✅ [AFTER] Resumen enviado');
-          return;
-        }
-
-        if (cmd.isCommand && cmd.command === 'anular') {
-          const undoResult = await undoLastOperationMessage();
-          await sendWhatsAppMessage(from, undoResult.message, phoneNumberId);
-          console.log('✅ [AFTER] Anulación procesada');
-          return;
+        if (cmd.isCommand && cmd.command) {
+          if (cmd.command === 'ayuda') {
+            const helpMsg = generateHelpMessage();
+            await sendWhatsAppMessage(from, helpMsg, phoneNumberId);
+            console.log('✅ [AFTER] Ayuda enviada a WhatsApp');
+            return;
+          }
+          if (cmd.command === 'saldos') {
+            const balancesMsg = await generateBalancesMessage();
+            await sendWhatsAppMessage(from, balancesMsg, phoneNumberId);
+            console.log('✅ [AFTER] Saldos enviados a WhatsApp');
+            return;
+          }
+          if (cmd.command === 'stock') {
+            const stocksMsg = await generateStocksMessage();
+            await sendWhatsAppMessage(from, stocksMsg, phoneNumberId);
+            console.log('✅ [AFTER] Stock enviado a WhatsApp');
+            return;
+          }
+          if (cmd.command === 'resumen') {
+            const summaryMsg = await generateDailySummaryMessage();
+            await sendWhatsAppMessage(from, summaryMsg, phoneNumberId);
+            console.log('✅ [AFTER] Resumen enviado a WhatsApp');
+            return;
+          }
+          if (cmd.command === 'anular') {
+            const undoResult = await undoLastOperationMessage();
+            await sendWhatsAppMessage(from, undoResult.message, phoneNumberId);
+            console.log('✅ [AFTER] Anulación procesada en WhatsApp');
+            return;
+          }
         }
       }
 
@@ -363,18 +389,33 @@ export async function POST(request: NextRequest) {
       if (!parseResult.success || !parseResult.operation) {
         console.warn(`⚠️ [AFTER] No se pudo interpretar el mensaje/medio:`, text);
         const helpMsg = isAudio
-          ? `🎙️ No pude entender con claridad tu nota de voz.\n\nPor favor repetí el audio o escribílo en texto (ej: *"Compré 500 dólares a 7750 con Ueno"*).`
+          ? `🎙️ No pude entender con claridad tu nota de voz.\n\nPor favor repetí el audio o escribílo en texto (ej: *"Compré 500 dólares a 7750 con Ueno"*).\n\n💡 Escribí *ayuda* para ver la lista de comandos disponibles.`
           : isImage
           ? `🧾 Recibí la imagen, pero no pude extraer con claridad los datos del comprobante.\n\nAsegurate de que se vea bien el monto, banco y fecha, o escribí los datos en texto.`
-          : `❓ No pude entender la operación.\n\nEjemplos válidos:\n• *"Compré 500 dólares a 7750 con Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *"resumen"* (para cierre de caja)\n• *"anular"* (para deshacer la última)\n• O enviá una *foto de comprobante* o *nota de voz*.`;
+          : `❓ No pude entender la operación.\n\n💡 Escribí *ayuda* para ver todos los comandos y ejemplos disponibles.\n\nEjemplos rápidos:\n• *"Compré 500 dólares a 7750 con Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n• *saldos* (ver dinero en bancos)\n• *stock* (ver billetes en mano)\n• *resumen* (ver cierre del día)\n• *anular* (deshacer la última)`;
 
         await sendWhatsAppMessage(from, helpMsg, phoneNumberId);
         return;
       }
 
-      // Si el audio o imagen detectó un comando (ej. en audio dijo "haceme el resumen del día")
-      if (parseResult.isCommand) {
+      // Si el audio o mensaje detectó un comando (ej. en audio dijo "haceme el resumen del día" o "cuánto dinero tengo")
+      if (parseResult.isCommand && parseResult.command) {
         const intro = parseResult.transcription ? `🎙️ _"${parseResult.transcription}"_\n\n` : '';
+        if (parseResult.command === 'ayuda') {
+          const helpMsg = generateHelpMessage();
+          await sendWhatsAppMessage(from, intro + helpMsg, phoneNumberId);
+          return;
+        }
+        if (parseResult.command === 'saldos') {
+          const balancesMsg = await generateBalancesMessage();
+          await sendWhatsAppMessage(from, intro + balancesMsg, phoneNumberId);
+          return;
+        }
+        if (parseResult.command === 'stock') {
+          const stocksMsg = await generateStocksMessage();
+          await sendWhatsAppMessage(from, intro + stocksMsg, phoneNumberId);
+          return;
+        }
         if (parseResult.command === 'resumen') {
           const summaryMsg = await generateDailySummaryMessage();
           await sendWhatsAppMessage(from, intro + summaryMsg, phoneNumberId);
@@ -388,6 +429,7 @@ export async function POST(request: NextRequest) {
           return;
         }
       }
+
 
       const parsed = parseResult.operation;
       const targetAccount = parsed.account || 'Efectivo PYG';

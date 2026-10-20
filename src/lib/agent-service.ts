@@ -6,19 +6,32 @@ export { detectCommand };
 const GEMINI_SCHEMA = {
   type: 'object' as const,
   properties: {
+    isCommand: {
+      type: 'boolean' as const,
+      description: 'true si el usuario solicita un comando como ayuda, resumen, saldos, stock o anular',
+    },
+    command: {
+      type: 'string' as const,
+      enum: ['ayuda', 'resumen', 'saldos', 'stock', 'anular'],
+      description: 'Comando solicitado por el usuario',
+    },
+    transcription: {
+      type: 'string' as const,
+      description: 'Transcripción fiel del audio si se envió una nota de voz',
+    },
     type: {
       type: 'string' as const,
       enum: ['COMPRA', 'VENTA', 'GASTO'],
-      description: 'Tipo de operación',
+      description: 'Tipo de operación (no aplica para comandos)',
     },
     currency: {
       type: 'string' as const,
       enum: ['USD', 'BRL', 'ARS', 'EUR'],
-      description: 'Moneda extranjera (no aplica para GASTO)',
+      description: 'Moneda extranjera (no aplica para GASTO ni comandos)',
     },
     amount: {
       type: 'number' as const,
-      description: 'Cantidad de moneda extranjera (no aplica para GASTO)',
+      description: 'Cantidad de moneda extranjera (no aplica para GASTO ni comandos)',
     },
     rate: {
       type: 'number' as const,
@@ -49,10 +62,9 @@ const GEMINI_SCHEMA = {
       description: 'Descripción del gasto (solo para GASTO)',
     },
   },
-  required: ['type', 'account', 'totalPYG'],
 };
 
-const SYSTEM_PROMPT = `Eres el asistente inteligente de un cambista (operador cambiario y financiero) en Paraguay. Tu trabajo es interpretar mensajes de texto, comprobantes de pago/transferencias bancarias (imágenes) y notas de voz (audios) en español paraguayo, y extraer la información estructurada de la transacción.
+const SYSTEM_PROMPT = `Eres el asistente inteligente de un cambista (operador cambiario y financiero) en Paraguay. Tu trabajo es interpretar mensajes de texto, comprobantes de pago/transferencias bancarias (imágenes) y notas de voz (audios) en español paraguayo, y extraer la información estructurada de la transacción o ejecutar comandos.
 
 REGLAS DE NEGOCIO:
 - Moneda base: Guaraníes (PYG)
@@ -60,6 +72,18 @@ REGLAS DE NEGOCIO:
 - COMPRA: el cambista compra moneda extranjera (entra divisa, sale PYG)
 - VENTA: el cambista vende moneda extranjera (sale divisa, entra PYG)
 - GASTO: gasto operativo, pago a proveedores o transferencias bancarias en guaraníes
+
+COMANDOS ESPECIALES DEL SISTEMA:
+- Si el usuario pide ayuda, explicaciones o qué cosas puede hacer (ej: "ayuda", "help", "¿qué comandos tenés?", "¿cómo funciona?", "menú"):
+  marca isCommand=true y command="ayuda".
+- Si el usuario consulta saldos de bancos o caja (ej: "saldos", "cuánto dinero tengo", "plata en el banco", "mis cuentas"):
+  marca isCommand=true y command="saldos".
+- Si el usuario consulta disponibilidad de divisas o billetes (ej: "stock", "cuántos dólares tengo", "billetes disponibles"):
+  marca isCommand=true y command="stock".
+- Si el usuario pide el resumen diario o balance del día (ej: "resumen", "cierre de caja", "cómo cerramos hoy"):
+  marca isCommand=true y command="resumen".
+- Si el usuario pide anular o deshacer la última operación (ej: "anular", "deshacer", "borrar último", "me equivoqué"):
+  marca isCommand=true y command="anular".
 
 COMPROBANTES DE PAGO Y TRANSFERENCIAS BANCARIAS (IMÁGENES):
 - Si el usuario envía una imagen de un comprobante de transferencia (SIPAP, extracto, ticket o recibo):
@@ -73,7 +97,7 @@ NOTAS DE VOZ (AUDIOS):
 - Si el usuario envía un audio o nota de voz:
   1. Escucha atentamente la dicción y modismos en español paraguayo.
   2. Transcribe el audio completo en el campo "transcription".
-  3. Si el usuario pide un comando como "resumen del día", "cierre de caja" o "anular último", marca isCommand=true y command="resumen" o "anular".
+  3. Si el usuario solicita un comando (ayuda, saldos, stock, resumen, anular), marca isCommand=true y su command correspondiente.
   4. Si el usuario dicta una operación cambiaria o gasto (ej: "Compré 500 dólares a 7800 por Familiar"), extrae la operación normalmente con type, currency, amount, rate, totalPYG y account.
 
 JERGA Y CUENTAS PARAGUAYAS:

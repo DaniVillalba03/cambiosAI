@@ -72,10 +72,113 @@ export async function generateDailySummaryMessage(): Promise<string> {
   }
 
   msg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
-  msg += `✅ Generado automáticamente por CambiosAI`;
+  msg += `✅ Generado automáticamente por MiCambio`;
 
   return msg;
 }
+
+/**
+ * Genera la guía completa de comandos y ayuda para el usuario
+ */
+export function generateHelpMessage(): string {
+  let msg = `🤖 *GUÍA DE COMANDOS - MiCambio Bot*\n`;
+  msg += `Hola! Soy tu asistente cambiario y financiero personal.\n`;
+  msg += `Podés escribirme, mandarme fotos de comprobantes o notas de voz:\n\n`;
+
+  msg += `💵 *1. REGISTRAR COMPRAS Y VENTAS*\n`;
+  msg += `• _"Compré 500 dólares a 7750 por Ueno"_\n`;
+  msg += `• _"Vendí 200 USD a 7820 en efectivo"_\n`;
+  msg += `• _"Compré 2000 reales a 1520 con Itaú"_\n`;
+  msg += `• _"500 usd a 7750 ueno"_ (modo rápido)\n\n`;
+
+  msg += `⛽ *2. REGISTRAR GASTOS*\n`;
+  msg += `• _"Gasté 150 mil en combustible con Itaú"_\n`;
+  msg += `• _"Pagué 80 mil almuerzo en efectivo"_\n\n`;
+
+  msg += `📸 *3. FOTOS DE COMPROBANTES*\n`;
+  msg += `• Enviá la foto de una transferencia bancaria (SIPAP, Itaú, Ueno, Familiar, BNF, Continental) y extraigo automáticamente el monto, banco y concepto.\n\n`;
+
+  msg += `🎙️ *4. NOTAS DE VOZ (AUDIOS)*\n`;
+  msg += `• Dictá tu operación en un audio y lo registro al instante.\n\n`;
+
+  msg += `⚡ *5. COMANDOS RÁPIDOS*\n`;
+  msg += `• *ayuda*: Ver esta lista de comandos y ejemplos.\n`;
+  msg += `• *saldos*: Ver cuánto dinero tenés en cada banco y en efectivo.\n`;
+  msg += `• *stock*: Ver la cantidad de billetes de moneda extranjera en caja.\n`;
+  msg += `• *resumen* o *cierre*: Ver las operaciones y ganancia del día de hoy.\n`;
+  msg += `• *anular*: Deshacer la última operación si hubo un error.\n\n`;
+
+  msg += `✅ Todo lo que hagas acá se sincroniza en vivo con tu aplicación web.`;
+  return msg;
+}
+
+/**
+ * Consulta y devuelve los saldos actuales de todos los bancos y efectivo
+ */
+export async function generateBalancesMessage(): Promise<string> {
+  const { data: accounts } = await supabaseAdmin.from('accounts').select('*');
+
+  let msg = `🏦 *TUS SALDOS ACTUALES*\n`;
+  msg += `📅 ${new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' })}\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  let totalPYG = 0;
+  if (accounts && accounts.length > 0) {
+    const efectivo = accounts.find((a: any) => a.id === 'Efectivo PYG');
+    if (efectivo) {
+      const bal = Number(efectivo.balance) || 0;
+      totalPYG += bal;
+      msg += `💰 *Efectivo PYG:* ${formatPYG(bal)}\n`;
+    }
+
+    accounts
+      .filter((a: any) => a.type === 'BANK')
+      .forEach((b: any) => {
+        const bal = Number(b.balance) || 0;
+        totalPYG += bal;
+        msg += `🏛️ *${b.name}:* ${formatPYG(bal)}\n`;
+      });
+
+    msg += `\n💼 *Capital Total Guaraníes:* ${formatPYG(totalPYG)}\n`;
+  } else {
+    msg += `_No se encontraron cuentas registradas._\n`;
+  }
+
+  msg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `Escribí *stock* para ver billetes en moneda extranjera.`;
+  return msg;
+}
+
+/**
+ * Consulta y devuelve el stock actual de billetes en moneda extranjera
+ */
+export async function generateStocksMessage(): Promise<string> {
+  const { data: stocks } = await supabaseAdmin.from('currency_stocks').select('*');
+
+  let msg = `💵 *BILLETES EN CAJA (DIVISAS)*\n`;
+  msg += `📅 ${new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' })}\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  if (stocks && stocks.length > 0) {
+    stocks.forEach((s: any) => {
+      const cur = s.currency as Currency;
+      const amount = Number(s.amount) || 0;
+      const avgCost = Number(s.average_cost) || 0;
+      msg += `${CURRENCY_FLAGS[cur] || ''} *${cur}:* ${CURRENCY_SYMBOLS[cur] || ''} ${formatCurrency(amount, cur === 'ARS' ? 0 : 2)}`;
+      if (avgCost > 0) {
+        msg += ` (Costo prom: Gs. ${formatCurrency(avgCost, 0)})`;
+      }
+      msg += `\n`;
+    });
+  } else {
+    msg += `_Sin divisas registradas._\n`;
+  }
+
+  msg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
+  msg += `Escribí *saldos* para ver cuentas en guaraníes.`;
+  return msg;
+}
+
 
 /**
  * Anula la última operación registrada en Supabase y revierte

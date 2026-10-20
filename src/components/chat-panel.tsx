@@ -25,7 +25,7 @@ export function ChatPanel() {
       id: 'welcome',
       timestamp: new Date().toISOString(),
       sender: 'bot',
-      text: '¡Hola! 👋 Soy tu asistente cambiario con IA.\n\nPodés decirme cosas como:\n• *"Compré 500 dólares a 7750 por Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n\nTambién podés adjuntar una foto de comprobante 📸 o grabar un audio 🎙️',
+      text: '¡Hola! 👋 Soy tu asistente cambiario con IA.\n\nPodés escribirme o dictarme notas de voz como:\n• *"Compré 500 dólares a 7750 por Ueno"*\n• *"Vendí 200 USD a 7820 en efectivo"*\n• *"Gasté 50 mil en combustible con Itaú"*\n\n💡 *Comandos rápidos:*\nEscribí *ayuda*, *saldos*, *stock*, *resumen* o *anular*.\n\nTambién podés adjuntar fotos de comprobantes 📸 o pulsar los botones rápidos de abajo 👇',
     },
   ]);
   const [input, setInput] = useState('');
@@ -44,8 +44,8 @@ export function ChatPanel() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  const handleSend = async () => {
-    const text = input.trim();
+  const handleSend = async (overrideText?: string) => {
+    const text = (overrideText !== undefined ? overrideText : input).trim();
     if (!text && !attachedImage) return;
     if (isProcessing) return;
 
@@ -58,7 +58,9 @@ export function ChatPanel() {
       imageBase64: attachedImage || undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
-    setInput('');
+    if (overrideText === undefined) {
+      setInput('');
+    }
     setAttachedImage(null);
     setIsProcessing(true);
 
@@ -448,31 +450,69 @@ export function ChatPanel() {
       )}
 
       {/* Quick Prompts Bar */}
-      <div className="bg-surface-1/90 border-t border-border/40 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto">
-        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">Atajos:</span>
+      <div className="bg-surface-1/90 border-t border-border/40 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">Comandos:</span>
+        <button
+          onClick={() => handleSend('ayuda')}
+          disabled={isProcessing}
+          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-accent/20 hover:text-accent text-gray-200 border border-border/60 font-medium transition-colors"
+          title="Ver todos los comandos disponibles y cómo usar el bot"
+        >
+          ❓ Ayuda
+        </button>
+        <button
+          onClick={() => handleSend('resumen')}
+          disabled={isProcessing}
+          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-accent/20 hover:text-accent text-gray-200 border border-border/60 font-medium transition-colors"
+          title="Ver resumen y balance del día"
+        >
+          📊 Resumen
+        </button>
+        <button
+          onClick={() => handleSend('saldos')}
+          disabled={isProcessing}
+          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-buy/20 hover:text-buy text-gray-200 border border-border/60 font-medium transition-colors"
+          title="Ver saldos en bancos y caja"
+        >
+          🏦 Mis Saldos
+        </button>
+        <button
+          onClick={() => handleSend('stock')}
+          disabled={isProcessing}
+          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-sell/20 hover:text-sell text-gray-200 border border-border/60 font-medium transition-colors"
+          title="Ver billetes y divisas disponibles"
+        >
+          💵 Billetes
+        </button>
+        <button
+          onClick={() => handleSend('anular')}
+          disabled={isProcessing}
+          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-loss/10 hover:bg-loss/25 text-loss border border-loss/30 font-medium transition-colors"
+          title="Anular la última transacción registrada"
+        >
+          ↩️ Anular
+        </button>
+
+        <div className="h-4 w-px bg-border shrink-0 mx-1" />
+
+        <span className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider shrink-0">Ejemplos:</span>
         <button
           onClick={() => handleQuickTemplate('Compré 500 dólares a 7750 pagué por Ueno')}
           className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-buy/20 hover:text-buy text-gray-300 border border-border/40 transition-colors"
         >
-          🔵 Compra 500 USD Ueno
+          🔵 Compra USD
         </button>
         <button
           onClick={() => handleQuickTemplate('Vendí 200 USD a 7820 en efectivo')}
           className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-sell/20 hover:text-sell text-gray-300 border border-border/40 transition-colors"
         >
-          🟡 Venta 200 USD Efectivo
-        </button>
-        <button
-          onClick={() => handleQuickTemplate('Compré 1000 reales a 1520 con Itaú')}
-          className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-buy/20 hover:text-buy text-gray-300 border border-border/40 transition-colors"
-        >
-          🇧🇷 Compra 1.000 BRL Itaú
+          🟡 Venta USD
         </button>
         <button
           onClick={() => handleQuickTemplate('Gasté 50 mil en combustible con Itaú')}
           className="shrink-0 text-xs px-2.5 py-1 rounded-full bg-surface-2 hover:bg-expense/20 hover:text-expense text-gray-300 border border-border/40 transition-colors"
         >
-          ⛽ Gasto 50k Itaú
+          ⛽ Gasto
         </button>
         <button
           onClick={handleGenerateDemoReceipt}
@@ -525,7 +565,7 @@ export function ChatPanel() {
         </button>
 
         <button
-          onClick={handleSend}
+          onClick={() => handleSend()}
           disabled={isProcessing || (!input.trim() && !attachedImage)}
           className={cn(
             'p-2.5 rounded-full transition-all duration-200',

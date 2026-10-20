@@ -12,29 +12,57 @@ export function normalizeText(text: string): string {
 }
 
 /**
- * Detecta si el texto es un comando de sistema (resumen o anular)
+ * Detecta si el texto es un comando de sistema (ayuda, saldos, stock, resumen o anular)
  */
-export function detectCommand(text: string): { isCommand: boolean; command?: 'resumen' | 'anular' } {
+export function detectCommand(text: string): {
+  isCommand: boolean;
+  command?: 'ayuda' | 'saldos' | 'stock' | 'resumen' | 'anular';
+} {
   const norm = normalizeText(text);
 
-  // Comandos de resumen / balance / cierre
+  // 1. Comandos de Ayuda / Menú / Guía
+  if (
+    /^(ayuda|help|menu|comandos|que podes hacer|que podes registrar|como funciona|que hago|guia|opciones)(\s|$)/.test(norm) ||
+    /\b(como usar|como se usa|lista de comandos|instrucciones|que comandos hay|que sabes hacer|para que sirves)\b/.test(norm)
+  ) {
+    return { isCommand: true, command: 'ayuda' };
+  }
+
+  // 2. Comandos de Saldos / Cuentas en Guaraníes
+  if (
+    /^(saldos|saldo|bancos|capital|cuanto tengo|mis cuentas|plata)(\s|$)/.test(norm) ||
+    /\b(ver saldos|mis saldos|cuanto dinero tengo|capital actual|plata en bancos|saldo en bancos|estado de cuentas)\b/.test(norm)
+  ) {
+    return { isCommand: true, command: 'saldos' };
+  }
+
+  // 3. Comandos de Stock de Divisas / Billetes en Mano
+  if (
+    /^(stock|divisas|billetes)(\s|$)/.test(norm) ||
+    /\b(ver stock|cuantos dolares|cuantos reales|cuantos pesos|stock de divisas|billetes en caja|billetes en mano|que divisas tengo)\b/.test(norm)
+  ) {
+    return { isCommand: true, command: 'stock' };
+  }
+
+  // 4. Comandos de Resumen / Balance / Cierre de Caja
   if (
     /^(resumen|cierre|arqueo|balance|reporte|estado)(\s|$)/.test(norm) ||
-    /\b(cierre de caja|arqueo de caja|resumen del dia|resumen de hoy|ver resumen|dame un resumen)\b/.test(norm)
+    /\b(cierre de caja|arqueo de caja|resumen del dia|resumen de hoy|ver resumen|dame un resumen|como vamos hoy)\b/.test(norm)
   ) {
     return { isCommand: true, command: 'resumen' };
   }
 
-  // Comandos de anulación / rollback
+  // 5. Comandos de Anulación / Rollback
   if (
     /^(anular|deshacer|borrar|cancelar)(\s|$)/.test(norm) ||
-    /\b(anular ultimo|borrar ultimo|deshacer ultimo|cancelar ultimo)\b/.test(norm)
+    /\b(anular ultimo|borrar ultimo|deshacer ultimo|cancelar ultimo|borra la ultima|eliminar ultima|me equivoque)\b/.test(norm)
   ) {
     return { isCommand: true, command: 'anular' };
   }
 
   return { isCommand: false };
 }
+
 
 /**
  * Parser local robusto para lenguaje y jerga cambiaria en Paraguay.
