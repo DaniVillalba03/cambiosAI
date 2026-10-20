@@ -21,43 +21,62 @@ import {
   BANK_ACCOUNTS,
   BANK_COLORS,
 } from '@/types';
-import { formatPYG, formatCurrency, cn } from '@/lib/utils';
+import {
+  formatPYG,
+  formatCurrency,
+  cn,
+  toLocalISODate,
+  isSameDay,
+  formatDisplayDate,
+} from '@/lib/utils';
 import { BankLogo } from '@/components/bank-logo';
+import { DateSelector } from '@/components/date-selector';
 
 export function ArqueoPanel() {
-  const { state, todayOperations, todayProfit, todayExpenses } = useAppState();
+  const { state } = useAppState();
+  const [selectedDate, setSelectedDate] = useState<string>(() => toLocalISODate(new Date()));
   const [copied, setCopied] = useState(false);
 
+  // Operaciones de la fecha seleccionada
+  const dateOperations = useMemo(() => {
+    return state.operations.filter((op) => isSameDay(op.timestamp, selectedDate));
+  }, [state.operations, selectedDate]);
+
+  const dateProfit = useMemo(() => {
+    return dateOperations.reduce((sum, o) => sum + (o.profit || 0), 0);
+  }, [dateOperations]);
+
+  const dateExpenses = useMemo(() => {
+    return dateOperations
+      .filter((o) => o.type === 'GASTO')
+      .reduce((sum, o) => sum + o.totalPYG, 0);
+  }, [dateOperations]);
+
   const summary = useMemo(() => {
-    const dateStr = new Date().toLocaleDateString('es-PY', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
+    const dateStr = formatDisplayDate(selectedDate);
 
-    const totalOps = todayOperations.length;
-    const buys = todayOperations.filter((o) => o.type === 'COMPRA').length;
-    const sells = todayOperations.filter((o) => o.type === 'VENTA').length;
-    const expenses = todayOperations.filter((o) => o.type === 'GASTO').length;
-    const netFlow = todayProfit - todayExpenses;
+    const totalOps = dateOperations.length;
+    const buys = dateOperations.filter((o) => o.type === 'COMPRA').length;
+    const sells = dateOperations.filter((o) => o.type === 'VENTA').length;
+    const expenses = dateOperations.filter((o) => o.type === 'GASTO').length;
+    const netFlow = dateProfit - dateExpenses;
 
-    let whatsappMsg = `📊 *CIERRE DE CAJA - CambiosAI*\n`;
+    let whatsappMsg = `📊 *CIERRE DE CAJA - MiCambio*\n`;
     whatsappMsg += `📅 ${dateStr}\n`;
     whatsappMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
     whatsappMsg += `📈 *RESUMEN DEL DÍA*\n`;
     whatsappMsg += `• Operaciones: ${totalOps} (${buys} compras, ${sells} ventas, ${expenses} gastos)\n`;
-    whatsappMsg += `• 🟢 *Ganancia Cambiaria:* ${formatPYG(todayProfit)}\n`;
-    whatsappMsg += `• ⛽ Gastos del Día: ${formatPYG(todayExpenses)}\n`;
+    whatsappMsg += `• 🟢 *Ganancia Cambiaria:* ${formatPYG(dateProfit)}\n`;
+    whatsappMsg += `• ⛽ Gastos del Día: ${formatPYG(dateExpenses)}\n`;
     whatsappMsg += `• 💼 *Flujo Neto Final:* ${formatPYG(netFlow)}\n\n`;
 
-    whatsappMsg += `💵 *STOCK DE DIVISAS*\n`;
+    whatsappMsg += `💵 *BILLETES EN CAJA (DIVISAS)*\n`;
     for (const cur of CURRENCIES) {
       const stock = state.currencyStocks[cur];
       if (stock.amount > 0) {
         whatsappMsg += `${CURRENCY_FLAGS[cur]} ${cur}: ${CURRENCY_SYMBOLS[cur]} ${formatCurrency(stock.amount, cur === 'ARS' ? 0 : 2)}`;
-        whatsappMsg += ` (PPP: Gs. ${formatCurrency(stock.averageCost, 0)})\n`;
+        whatsappMsg += ` (Costo prom: Gs. ${formatCurrency(stock.averageCost, 0)})\n`;
       }
     }
 
@@ -68,10 +87,20 @@ export function ArqueoPanel() {
     }
 
     whatsappMsg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
-    whatsappMsg += `✅ Generado por CambiosAI`;
+    whatsappMsg += `✅ Generado por MiCambio`;
 
-    return { dateStr, totalOps, buys, sells, expenses, currencyProfit: todayProfit, expensesTotal: todayExpenses, netFlow, whatsappMsg };
-  }, [state, todayOperations, todayProfit, todayExpenses]);
+    return {
+      dateStr,
+      totalOps,
+      buys,
+      sells,
+      expenses,
+      currencyProfit: dateProfit,
+      expensesTotal: dateExpenses,
+      netFlow,
+      whatsappMsg,
+    };
+  }, [state, dateOperations, dateProfit, dateExpenses, selectedDate]);
 
   const handleCopy = async () => {
     try {
@@ -79,7 +108,6 @@ export function ArqueoPanel() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
     } catch {
-      // Fallback
       const textarea = document.createElement('textarea');
       textarea.value = summary.whatsappMsg;
       document.body.appendChild(textarea);
@@ -96,12 +124,19 @@ export function ArqueoPanel() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ClipboardCheck className="w-5 h-5 text-accent" />
-          <h2 className="text-lg font-bold text-white">Arqueo / Cierre de Caja</h2>
+          <h2 className="text-lg font-bold text-white">Cierre de Caja (Arqueo)</h2>
         </div>
-        <span className="text-xs text-gray-500 bg-surface-2 px-3 py-1.5 rounded-full">
+        <span className="text-xs text-gray-400 bg-surface-2 px-3 py-1.5 rounded-full border border-border">
           {summary.dateStr}
         </span>
       </div>
+
+      {/* ─── Selector de Fecha ─── */}
+      <DateSelector
+        selectedDate={selectedDate}
+        onSelectDate={setSelectedDate}
+      />
+
 
       {/* ─── Resumen del Día ─── */}
       <div className="glass glow-accent p-5">
@@ -144,27 +179,27 @@ export function ArqueoPanel() {
         <div className="space-y-3">
           {CURRENCIES.map((cur) => {
             const stock = state.currencyStocks[cur];
-            const cashBalance = state.accountBalances[`Efectivo ${cur}` as keyof typeof state.accountBalances];
+            const amount = stock.amount;
             return (
               <div
                 key={cur}
-                className="flex items-center justify-between p-3 bg-surface-2/40 rounded-xl border border-border/30"
+                className="flex items-center justify-between p-3.5 bg-surface-2/40 rounded-xl border border-border/30"
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">{CURRENCY_FLAGS[cur]}</span>
+                  <span className="text-2xl select-none">{CURRENCY_FLAGS[cur]}</span>
                   <div>
-                    <p className="text-sm font-semibold text-white">{CURRENCY_LABELS[cur]}</p>
-                    <p className="text-xs text-gray-500">
-                      PPP: Gs. {stock.averageCost > 0 ? formatCurrency(stock.averageCost, 0) : '—'}
+                    <p className="text-sm font-bold text-white">{CURRENCY_LABELS[cur]}</p>
+                    <p className="text-xs text-gray-400">
+                      Costo prom: Gs. {stock.averageCost > 0 ? formatCurrency(stock.averageCost, 0) : '—'}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-bold text-white">
-                    {CURRENCY_SYMBOLS[cur]} {formatCurrency(cashBalance, cur === 'ARS' ? 0 : 2)}
+                  <p className="text-lg font-black text-white">
+                    {CURRENCY_SYMBOLS[cur]} {formatCurrency(amount, cur === 'ARS' ? 0 : 2)}
                   </p>
-                  <p className="text-xs text-gray-500">
-                    ≈ {formatPYG(cashBalance * (stock.averageCost || 0))}
+                  <p className="text-xs text-gray-400">
+                    ≈ {formatPYG(amount * (stock.averageCost || 0))}
                   </p>
                 </div>
               </div>
@@ -209,14 +244,14 @@ export function ArqueoPanel() {
       </div>
 
       {/* ─── Gastos del Día ─── */}
-      {todayExpenses > 0 && (
+      {dateExpenses > 0 && (
         <div className="glass p-5">
           <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
             <Receipt className="w-4 h-4 text-expense" />
-            Gastos del Día
+            Gastos de la Fecha
           </h3>
           <div className="space-y-2">
-            {todayOperations
+            {dateOperations
               .filter((op) => op.type === 'GASTO')
               .map((op) => (
                 <div
@@ -229,11 +264,12 @@ export function ArqueoPanel() {
               ))}
             <div className="flex items-center justify-between p-3 bg-expense/10 rounded-xl border border-expense/20">
               <span className="text-sm font-semibold text-expense">Total Gastos</span>
-              <span className="text-lg font-bold text-expense">{formatPYG(todayExpenses)}</span>
+              <span className="text-lg font-bold text-expense">{formatPYG(dateExpenses)}</span>
             </div>
           </div>
         </div>
       )}
+
 
       {/* ─── Botón Copiar para WhatsApp ─── */}
       <button

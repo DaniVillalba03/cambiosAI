@@ -29,6 +29,12 @@
     scrollbar-color: var(--color-border) transparent;
   }
 
+  html, body {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
   body {
     @apply bg-surface-0 text-gray-100 antialiased;
     font-family: var(--font-sans);
@@ -37,12 +43,15 @@
 
 @layer utilities {
   .glass {
-    @apply bg-surface-1/80 backdrop-blur-xl border border-border rounded-2xl;
+    @apply bg-surface-1/95 border border-border rounded-2xl shadow-sm;
+    transform: translateZ(0);
   }
 
   .glass-subtle {
-    @apply bg-surface-2/60 backdrop-blur-md border border-border/50 rounded-xl;
+    @apply bg-surface-2/80 border border-border/50 rounded-xl;
+    transform: translateZ(0);
   }
+
 
   .glow-accent {
     box-shadow: 0 0 20px rgba(34, 211, 238, 0.15), 0 0 60px rgba(34, 211, 238, 0.05);

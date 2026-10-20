@@ -11,7 +11,7 @@ import React, {
   useRef,
 } from 'react';
 import { AppState, Currency, Operation, Account, CurrencyStock } from '@/types';
-import { createSeedData } from '@/lib/seed-data';
+import { createSeedData, createEmptyState } from '@/lib/seed-data';
 import { generateId, isToday } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import {
@@ -19,9 +19,12 @@ import {
   syncTransactionToSupabase,
   deleteTransactionFromSupabase,
   saveInitialBalancesToSupabase,
+  saveSingleAccountBalanceToSupabase,
+  saveSingleCurrencyStockToSupabase,
   clearTransactionsInSupabase,
   SupabaseSyncStatus,
 } from '@/lib/supabase-service';
+
 
 // ─── Actions ───
 type Action =
@@ -34,6 +37,14 @@ type Action =
         accountBalances: Record<Account, number>;
         currencyStocks: Record<Currency, CurrencyStock>;
       };
+    }
+  | {
+      type: 'SET_SINGLE_ACCOUNT_BALANCE';
+      payload: { account: Account; balance: number };
+    }
+  | {
+      type: 'SET_SINGLE_CURRENCY_STOCK';
+      payload: { currency: Currency; amount: number; averageCost?: number };
     }
   | { type: 'CLEAR_HISTORY' }
   | { type: 'RESET' };
@@ -147,6 +158,45 @@ function appReducer(state: AppState, action: Action): AppState {
       };
     }
 
+    case 'SET_SINGLE_ACCOUNT_BALANCE': {
+      return {
+        ...state,
+        accountBalances: {
+          ...state.accountBalances,
+          [action.payload.account]: action.payload.balance,
+        },
+      };
+    }
+
+    case 'SET_SINGLE_CURRENCY_STOCK': {
+      const { currency, amount, averageCost } = action.payload;
+      const current = state.currencyStocks[currency] || {
+        currency,
+        amount: 0,
+        totalCostPYG: 0,
+        averageCost: 0,
+      };
+      const avg = averageCost !== undefined ? averageCost : current.averageCost;
+      const cashAccount = `Efectivo ${currency}` as Account;
+      return {
+        ...state,
+        accountBalances: {
+          ...state.accountBalances,
+          [cashAccount]: amount,
+        },
+        currencyStocks: {
+          ...state.currencyStocks,
+          [currency]: {
+            currency,
+            amount,
+            averageCost: avg,
+            totalCostPYG: amount * avg,
+          },
+        },
+      };
+    }
+
+
     case 'CLEAR_HISTORY': {
       return {
         ...state,
@@ -166,11 +216,18 @@ function appReducer(state: AppState, action: Action): AppState {
 // ─── Context Interface ───
 interface AppContextValue {
   state: AppState;
+  isLoaded: boolean;
   addOperation: (op: Omit<Operation, 'id' | 'operationNumber' | 'profit'>) => void;
   deleteOperation: (id: string) => void;
   updateInitialBalances: (
     accountBalances: Record<Account, number>,
     currencyStocks: Record<Currency, CurrencyStock>
+  ) => Promise<boolean>;
+  updateSingleAccountBalance: (account: Account, balance: number) => Promise<boolean>;
+  updateSingleCurrencyStock: (
+    currency: Currency,
+    amount: number,
+    averageCost?: number
   ) => Promise<boolean>;
   clearHistory: () => Promise<boolean>;
   resetData: () => void;
@@ -189,8 +246,10 @@ const STORAGE_KEY = 'cambiosai_state';
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(appReducer, null as unknown as AppState, () => {
-    return createSeedData();
+    return createEmptyState();
   });
+
+  const [isLoaded, setIsLoaded] = useState(false);
 
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseSyncStatus>({
     connected: false,
@@ -211,7 +270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(cloudState));
       } catch {}
     } else {
-      // Fallback a localStorage si Supabase no está listo
+      // Fallback a localStorage si Supabase no está conectado
       try {
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
@@ -220,9 +279,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
       } catch {}
     }
+    setIsLoaded(true);
   }, []);
 
+  // Cargar inmediatamente desde localStorage al montar en el cliente (0 ms de espera)
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved) as AppState;
+        dispatch({ type: 'LOAD_STATE', payload: parsed });
+      }
+    } catch {}
+    setIsLoaded(true);
+
     refreshFromSupabase();
   }, [refreshFromSupabase]);
 
@@ -325,6 +395,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
     []
   );
 
+  // 6.b Actualizar saldo de una sola cuenta (banco o efectivo)
+  const updateSingleAccountBalance = useCallback(
+    async (account: Account, balance: number) => {
+      dispatch({
+        type: 'SET_SINGLE_ACCOUNT_BALANCE',
+        payload: { account, balance },
+      });
+      return await saveSingleAccountBalanceToSupabase(account, balance);
+    },
+    []
+  );
+
+  // 6.c Actualizar stock de una sola divisa (USD, BRL, ARS, EUR)
+  const updateSingleCurrencyStock = useCallback(
+    async (currency: Currency, amount: number, averageCost?: number) => {
+      dispatch({
+        type: 'SET_SINGLE_CURRENCY_STOCK',
+        payload: { currency, amount, averageCost },
+      });
+      const avg =
+        averageCost !== undefined
+          ? averageCost
+          : stateRef.current.currencyStocks[currency]?.averageCost || 0;
+      return await saveSingleCurrencyStockToSupabase(currency, amount, avg);
+    },
+    []
+  );
+
   // 7. Limpiar operaciones de prueba para arrancar en cero
   const clearHistory = useCallback(async () => {
     dispatch({ type: 'CLEAR_HISTORY' });
@@ -354,9 +452,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     <AppContext.Provider
       value={{
         state,
+        isLoaded,
         addOperation,
         deleteOperation,
         updateInitialBalances,
+        updateSingleAccountBalance,
+        updateSingleCurrencyStock,
         clearHistory,
         resetData,
         todayOperations,
@@ -371,6 +472,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       {children}
     </AppContext.Provider>
   );
+
+
 }
 
 export function useAppState() {

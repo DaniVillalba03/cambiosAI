@@ -288,3 +288,75 @@ export async function clearTransactionsInSupabase(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * Actualiza el saldo de una sola cuenta bancaria o efectivo en Supabase
+ */
+export async function saveSingleAccountBalanceToSupabase(
+  account: Account,
+  balance: number
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('accounts')
+      .update({
+        balance,
+        initial_balance: balance,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', account);
+
+    if (error) {
+      console.warn(`Error updating balance for ${account} in Supabase:`, error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Exception updating balance for ${account} in Supabase:`, err);
+    return false;
+  }
+}
+
+/**
+ * Actualiza la cantidad o costo de una sola divisa en Supabase
+ */
+export async function saveSingleCurrencyStockToSupabase(
+  currency: Currency,
+  amount: number,
+  averageCost: number
+): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from('currency_stocks')
+      .update({
+        amount,
+        average_cost: averageCost,
+        total_cost_pyg: amount * averageCost,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('currency', currency);
+
+    if (error) {
+      console.warn(`Error updating currency stock for ${currency} in Supabase:`, error);
+      return false;
+    }
+
+    // Actualizar también la cuenta de efectivo correspondiente
+    const cashAccount = `Efectivo ${currency}`;
+    await supabase
+      .from('accounts')
+      .update({
+        balance: amount,
+        initial_balance: amount,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', cashAccount);
+
+    return true;
+  } catch (err) {
+    console.warn(`Exception updating currency stock for ${currency} in Supabase:`, err);
+    return false;
+  }
+}
+
+

@@ -1,5 +1,30 @@
-import { AppState, Currency, Operation } from '@/types';
+import { AppState, Currency, Operation, ALL_ACCOUNTS, CURRENCIES } from '@/types';
 import { generateId } from '@/lib/utils';
+
+// Estado limpio/vacío para arranque sin datos falsos
+export function createEmptyState(): AppState {
+  const initialBalances = {} as Record<string, number>;
+  ALL_ACCOUNTS.forEach((acc) => {
+    initialBalances[acc] = 0;
+  });
+
+  const currencyStocks: Record<Currency, AppState['currencyStocks'][Currency]> = {} as Record<Currency, AppState['currencyStocks'][Currency]>;
+  CURRENCIES.forEach((cur) => {
+    currencyStocks[cur] = {
+      currency: cur,
+      amount: 0,
+      totalCostPYG: 0,
+      averageCost: 0,
+    };
+  });
+
+  return {
+    operations: [],
+    currencyStocks,
+    accountBalances: initialBalances as AppState['accountBalances'],
+    nextOperationNumber: 1,
+  };
+}
 
 // Realistic seed data for a cambista's workday in Paraguay
 export function createSeedData(): AppState {

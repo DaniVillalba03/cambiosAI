@@ -10,6 +10,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useAppState } from '@/store/app-context';
 import { Dashboard } from '@/components/dashboard';
 import { ChatPanel } from '@/components/chat-panel';
 import { ReportsPanel } from '@/components/reports-panel';
@@ -18,35 +19,49 @@ import { ArqueoPanel } from '@/components/arqueo-panel';
 type Tab = 'dashboard' | 'chat' | 'reports' | 'arqueo';
 
 const tabs: { id: Tab; label: string; icon: React.ElementType; shortLabel: string }[] = [
-  { id: 'dashboard', label: 'Panel Principal', icon: LayoutDashboard, shortLabel: 'Panel' },
-  { id: 'chat', label: 'Chat IA', icon: MessageSquare, shortLabel: 'Chat' },
-  { id: 'reports', label: 'Reportes', icon: BarChart3, shortLabel: 'Reportes' },
-  { id: 'arqueo', label: 'Arqueo', icon: ClipboardCheck, shortLabel: 'Arqueo' },
+  { id: 'dashboard', label: 'Mis Saldos y Bancos', icon: LayoutDashboard, shortLabel: 'Bancos' },
+  { id: 'chat', label: 'Registrar Operación', icon: MessageSquare, shortLabel: 'Chat' },
+  { id: 'arqueo', label: 'Cierre de Caja', icon: ClipboardCheck, shortLabel: 'Cierre' },
+  { id: 'reports', label: 'Reportes y Gráficos', icon: BarChart3, shortLabel: 'Reportes' },
 ];
 
 export function AppShell() {
+  const { isLoaded } = useAppState();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+
+  if (!isLoaded) {
+    return (
+      <div className="flex h-dvh bg-surface-0 items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center shadow-lg shadow-accent/20 animate-pulse">
+            <ArrowLeftRight className="w-6 h-6 text-surface-0" />
+          </div>
+          <p className="text-sm font-bold text-gray-300">Cargando tus saldos...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-dvh bg-surface-0 overflow-hidden">
+
       {/* ─── Desktop Sidebar ─── */}
       <aside className="hidden lg:flex flex-col w-64 bg-surface-1 border-r border-border">
         {/* Logo */}
         <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent to-profit flex items-center justify-center">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center shadow-lg shadow-accent/10">
             <ArrowLeftRight className="w-5 h-5 text-surface-0" />
           </div>
           <div>
-            <h1 className="font-bold text-lg text-white tracking-tight">CambiosAI</h1>
-            <p className="text-xs text-gray-500 flex items-center gap-1">
-              <Zap className="w-3 h-3 text-accent" />
-              Powered by Gemini
+            <h1 className="font-black text-lg text-white tracking-tight">MiCambio</h1>
+            <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+              Control de Caja & Divisas
             </p>
           </div>
         </div>
 
         {/* Nav items */}
-        <nav className="flex-1 py-4 px-3 space-y-1">
+        <nav className="flex-1 py-4 px-3 space-y-1.5">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -55,9 +70,9 @@ export function AppShell() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200',
+                  'w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-200',
                   isActive
-                    ? 'bg-accent/10 text-accent border border-accent/20'
+                    ? 'bg-accent/15 text-accent border border-accent/30 shadow-sm'
                     : 'text-gray-400 hover:text-gray-200 hover:bg-surface-2/60'
                 )}
               >
@@ -70,9 +85,9 @@ export function AppShell() {
 
         {/* Footer */}
         <div className="px-4 py-4 border-t border-border">
-          <div className="glass-subtle px-4 py-3">
-            <p className="text-xs text-gray-500">Fase 1 • v0.1.0</p>
-            <p className="text-xs text-gray-600 mt-1">localStorage • Offline Ready</p>
+          <div className="glass-subtle px-4 py-3 rounded-2xl">
+            <p className="text-xs font-bold text-gray-300">Sistema Seguro y Privado</p>
+            <p className="text-[11px] text-gray-500 mt-0.5">Tus datos se guardan al instante</p>
           </div>
         </div>
       </aside>
@@ -80,18 +95,18 @@ export function AppShell() {
       {/* ─── Main Content ─── */}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
         {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-3 bg-surface-1/90 backdrop-blur-lg border-b border-border/50 z-10">
+        <header className="lg:hidden flex items-center justify-between px-4 py-3.5 bg-surface-1/95 backdrop-blur-lg border-b border-border/60 z-10">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent to-profit flex items-center justify-center">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center">
               <ArrowLeftRight className="w-4 h-4 text-surface-0" />
             </div>
-            <h1 className="font-bold text-base text-white tracking-tight">CambiosAI</h1>
+            <h1 className="font-black text-base text-white tracking-tight">MiCambio</h1>
           </div>
-          <span className="text-xs text-gray-500 flex items-center gap-1">
-            <Zap className="w-3 h-3 text-accent" />
-            Gemini
+          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
+            Control de Caja
           </span>
         </header>
+
 
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden">
