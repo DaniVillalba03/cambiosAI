@@ -5,14 +5,14 @@ import './globals.css';
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
 export const metadata: Metadata = {
-  title: 'CambiosAI - Control Cambiario Inteligente',
+  title: 'MiCambio · Caja y divisas',
   description:
     'Aplicación inteligente para operadores cambiarios en Paraguay. Registra compras, ventas y gastos por chat con IA.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
-    title: 'CambiosAI',
+    title: 'MiCambio',
   },
 };
 
@@ -21,7 +21,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: '#0a0e17',
+  themeColor: '#0b0c0e',
 };
 
 export default function RootLayout({

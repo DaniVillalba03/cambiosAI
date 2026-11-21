@@ -67,10 +67,10 @@ export function detectCommand(text: string): {
 /**
  * Parser local robusto para lenguaje y jerga cambiaria en Paraguay.
  * Procesa mensajes comunes como:
- * - "Compré 500 dólares a 7750 por Ueno"
+ * - "Compré 500 dólares a 7750 por Itaú"
  * - "Vendí 200 USD a 7820 en efectivo"
  * - "Compre 1000 reales a 1520 familiar"
- * - "500 usd a 7750 ueno"
+ * - "500 usd a 7750 itau"
  * - "Gasté 50 mil en combustible con Itaú"
  * - "resumen"
  */
@@ -191,7 +191,6 @@ export function extractCurrency(text: string): Currency | null {
  * Extrae la cuenta bancaria o de efectivo
  */
 export function extractAccount(text: string): Account {
-  if (/\bueno\b|\buenobank\b/.test(text)) return 'Ueno Bank';
   if (/\bitau\b/.test(text)) return 'Itaú';
   if (/\bfamiliar\b/.test(text)) return 'Banco Familiar';
   if (/\bbnf\b|\bfomento\b/.test(text)) return 'BNF';
@@ -337,7 +336,7 @@ function extractRate(text: string, currency: Currency): number | null {
     return parseNumberFormatted(rateMatch[1], true, currency);
   }
 
-  // Patrón 2: El segundo número del texto suele ser la cotización ("500 usd 7750 ueno")
+  // Patrón 2: El segundo número del texto suele ser la cotización ("500 usd 7750 itau")
   const allNumbers = text.match(/\b\d+(?:[.,]\d+)*\b/g);
   if (allNumbers && allNumbers.length >= 2) {
     // Tomar el que coincide con rangos típicos de cotización

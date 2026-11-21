@@ -96,7 +96,7 @@ export function DateSelector({
                 isToday ? 'text-accent' : 'text-amber-400'
               )}
             />
-            <span className="text-xs sm:text-sm font-black truncate">
+            <span className="text-xs sm:text-sm font-semibold truncate">
               {formatDisplayDate(selectedDate)}
             </span>
           </button>

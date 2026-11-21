@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import { formatPYG, formatCurrency } from '@/lib/utils';
-import { CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, Currency } from '@/types';
+import { CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, Currency, Operation, BANK_ACCOUNTS, OWNER_NAME } from '@/types';
+import { isTodayPY, formatLongDatePY } from '@/lib/time';
+import { deleteLastOperation } from '@/lib/operations-server';
 
 /**
  * Genera el texto del Cierre de Caja / Resumen del Día
@@ -9,17 +11,14 @@ import { CURRENCY_FLAGS, CURRENCY_SYMBOLS, CURRENCY_LABELS, Currency } from '@/t
 export async function generateDailySummaryMessage(): Promise<string> {
   const { data: accounts } = await supabaseAdmin.from('accounts').select('*');
   const { data: stocks } = await supabaseAdmin.from('currency_stocks').select('*');
-  const { data: transactions } = await supabaseAdmin.from('transactions').select('*');
+  // Solo las últimas 48 h: suficiente para "hoy" sin traer todo el historial
+  const since = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  const { data: transactions } = await supabaseAdmin
+    .from('transactions')
+    .select('*')
+    .gte('timestamp', since);
 
-  const todayOps = (transactions || []).filter((tx: any) => {
-    const d = new Date(tx.timestamp);
-    const t = new Date();
-    return (
-      d.getDate() === t.getDate() &&
-      d.getMonth() === t.getMonth() &&
-      d.getFullYear() === t.getFullYear()
-    );
-  });
+  const todayOps = (transactions || []).filter((tx: any) => isTodayPY(tx.timestamp));
 
   const buys = todayOps.filter((o: any) => o.type === 'COMPRA').length;
   const sells = todayOps.filter((o: any) => o.type === 'VENTA').length;
@@ -33,8 +32,8 @@ export async function generateDailySummaryMessage(): Promise<string> {
     .reduce((sum: number, o: any) => sum + (Number(o.total_pyg) || 0), 0);
   const netFlow = profit - expenses;
 
-  let msg = `📊 *CIERRE DE CAJA - CambiosAI*\n`;
-  msg += `📅 ${new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}\n`;
+  let msg = `📊 *CIERRE DE CAJA - MiCambio*\n`;
+  msg += `📅 ${formatLongDatePY(new Date(), true)}\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   msg += `📈 *RESUMEN DEL DÍA*\n`;
@@ -63,7 +62,7 @@ export async function generateDailySummaryMessage(): Promise<string> {
       msg += `💰 Efectivo: ${formatPYG(Number(efectivo.balance))}\n`;
     }
     accounts
-      .filter((a: any) => a.type === 'BANK')
+      .filter((a: any) => a.type === 'BANK' && (BANK_ACCOUNTS as string[]).includes(a.id))
       .forEach((b: any) => {
         msg += `🏛️ ${b.name}: ${formatPYG(Number(b.balance))}\n`;
       });
@@ -82,21 +81,21 @@ export async function generateDailySummaryMessage(): Promise<string> {
  */
 export function generateHelpMessage(): string {
   let msg = `🤖 *GUÍA DE COMANDOS - MiCambio Bot*\n`;
-  msg += `Hola! Soy tu asistente cambiario y financiero personal.\n`;
+  msg += `¡Hola, ${OWNER_NAME}! Soy tu asistente cambiario.\n`;
   msg += `Podés escribirme, mandarme fotos de comprobantes o notas de voz:\n\n`;
 
   msg += `💵 *1. REGISTRAR COMPRAS Y VENTAS*\n`;
-  msg += `• _"Compré 500 dólares a 7750 por Ueno"_\n`;
+  msg += `• _"Compré 500 dólares a 7750 por Itaú"_\n`;
   msg += `• _"Vendí 200 USD a 7820 en efectivo"_\n`;
   msg += `• _"Compré 2000 reales a 1520 con Itaú"_\n`;
-  msg += `• _"500 usd a 7750 ueno"_ (modo rápido)\n\n`;
+  msg += `• _"500 usd a 7750 itau"_ (modo rápido)\n\n`;
 
   msg += `⛽ *2. REGISTRAR GASTOS*\n`;
   msg += `• _"Gasté 150 mil en combustible con Itaú"_\n`;
   msg += `• _"Pagué 80 mil almuerzo en efectivo"_\n\n`;
 
   msg += `📸 *3. FOTOS DE COMPROBANTES*\n`;
-  msg += `• Enviá la foto de una transferencia bancaria (SIPAP, Itaú, Ueno, Familiar, BNF, Continental) y extraigo automáticamente el monto, banco y concepto.\n\n`;
+  msg += `• Enviá la foto de una transferencia bancaria (SIPAP, Itaú, Familiar, BNF, Continental) y extraigo automáticamente el monto, banco y concepto.\n\n`;
 
   msg += `🎙️ *4. NOTAS DE VOZ (AUDIOS)*\n`;
   msg += `• Dictá tu operación en un audio y lo registro al instante.\n\n`;
@@ -119,7 +118,7 @@ export async function generateBalancesMessage(): Promise<string> {
   const { data: accounts } = await supabaseAdmin.from('accounts').select('*');
 
   let msg = `🏦 *TUS SALDOS ACTUALES*\n`;
-  msg += `📅 ${new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' })}\n`;
+  msg += `📅 ${formatLongDatePY()}\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   let totalPYG = 0;
@@ -132,7 +131,7 @@ export async function generateBalancesMessage(): Promise<string> {
     }
 
     accounts
-      .filter((a: any) => a.type === 'BANK')
+      .filter((a: any) => a.type === 'BANK' && (BANK_ACCOUNTS as string[]).includes(a.id))
       .forEach((b: any) => {
         const bal = Number(b.balance) || 0;
         totalPYG += bal;
@@ -156,7 +155,7 @@ export async function generateStocksMessage(): Promise<string> {
   const { data: stocks } = await supabaseAdmin.from('currency_stocks').select('*');
 
   let msg = `💵 *BILLETES EN CAJA (DIVISAS)*\n`;
-  msg += `📅 ${new Date().toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' })}\n`;
+  msg += `📅 ${formatLongDatePY()}\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
 
   if (stocks && stocks.length > 0) {
@@ -181,104 +180,83 @@ export async function generateStocksMessage(): Promise<string> {
 
 
 /**
- * Anula la última operación registrada en Supabase y revierte
- * los saldos en accounts y currency_stocks correspondientes.
+ * Anula la última operación registrada y revierte saldos y stock
+ * (usa la misma lógica que el botón eliminar de la web).
  */
 export async function undoLastOperationMessage(): Promise<{
   success: boolean;
   message: string;
   opNumber?: number;
 }> {
-  const { data: lastTxs } = await supabaseAdmin
-    .from('transactions')
-    .select('*')
-    .order('operation_number', { ascending: false })
-    .limit(1);
-
-  if (!lastTxs || lastTxs.length === 0) {
-    return {
-      success: false,
-      message: '⚠️ No hay operaciones registradas para anular.',
-    };
+  const op = await deleteLastOperation();
+  if (!op) {
+    return { success: false, message: '⚠️ No hay operaciones registradas para anular.' };
   }
 
-  const lastOp = lastTxs[0];
+  const lines = [
+    `🗑️ *Operación #${op.operationNumber} anulada*`,
+    `• Tipo: ${op.type}`,
+    `• Total revertido: ${formatPYG(op.totalPYG)}`,
+    `• Cuenta: ${op.account}`,
+    'Los saldos y el stock volvieron a su estado anterior.',
+  ];
+  return { success: true, message: lines.join('\n'), opNumber: op.operationNumber };
+}
 
-  // Revertir saldos en accounts
-  if (lastOp.type === 'COMPRA' && lastOp.currency && lastOp.amount && lastOp.rate) {
-    const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', lastOp.account).single();
-    if (acc) {
-      await supabaseAdmin
-        .from('accounts')
-        .update({ balance: Number(acc.balance) + Number(lastOp.total_pyg) })
-        .eq('id', lastOp.account);
-    }
-    const cashAcc = `Efectivo ${lastOp.currency}`;
-    const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
-    if (cash) {
-      await supabaseAdmin
-        .from('accounts')
-        .update({ balance: Math.max(0, Number(cash.balance) - Number(lastOp.amount)) })
-        .eq('id', cashAcc);
-    }
-    const { data: stock } = await supabaseAdmin.from('currency_stocks').select('*').eq('currency', lastOp.currency).single();
-    if (stock) {
-      const newAmount = Math.max(0, Number(stock.amount) - Number(lastOp.amount));
-      const newCost = Math.max(0, Number(stock.total_cost_pyg) - Number(lastOp.total_pyg));
-      const newAvg = newAmount > 0 ? newCost / newAmount : 0;
-      await supabaseAdmin
-        .from('currency_stocks')
-        .update({ amount: newAmount, total_cost_pyg: newCost, average_cost: newAvg })
-        .eq('currency', lastOp.currency);
-    }
-  } else if (lastOp.type === 'VENTA' && lastOp.currency && lastOp.amount && lastOp.rate) {
-    const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', lastOp.account).single();
-    if (acc) {
-      await supabaseAdmin
-        .from('accounts')
-        .update({ balance: Number(acc.balance) - Number(lastOp.total_pyg) })
-        .eq('id', lastOp.account);
-    }
-    const cashAcc = `Efectivo ${lastOp.currency}`;
-    const { data: cash } = await supabaseAdmin.from('accounts').select('balance').eq('id', cashAcc).single();
-    if (cash) {
-      await supabaseAdmin
-        .from('accounts')
-        .update({ balance: Number(cash.balance) + Number(lastOp.amount) })
-        .eq('id', cashAcc);
-    }
-    const { data: stock } = await supabaseAdmin.from('currency_stocks').select('*').eq('currency', lastOp.currency).single();
-    if (stock) {
-      const costOfSold = (Number(lastOp.rate) - (Number(lastOp.profit) || 0) / Number(lastOp.amount)) * Number(lastOp.amount);
-      const newAmount = Number(stock.amount) + Number(lastOp.amount);
-      const newCost = Number(stock.total_cost_pyg) + costOfSold;
-      const newAvg = newAmount > 0 ? newCost / newAmount : 0;
-      await supabaseAdmin
-        .from('currency_stocks')
-        .update({ amount: newAmount, total_cost_pyg: newCost, average_cost: newAvg })
-        .eq('currency', lastOp.currency);
-    }
-  } else if (lastOp.type === 'GASTO') {
-    const { data: acc } = await supabaseAdmin.from('accounts').select('balance').eq('id', lastOp.account).single();
-    if (acc) {
-      await supabaseAdmin
-        .from('accounts')
-        .update({ balance: Number(acc.balance) + Number(lastOp.total_pyg) })
-        .eq('id', lastOp.account);
+export type BotCommand = 'ayuda' | 'saldos' | 'stock' | 'resumen' | 'anular';
+
+/** Ejecuta un comando del bot y devuelve el texto de respuesta. */
+export async function runCommand(command: string): Promise<string> {
+  switch (command) {
+    case 'ayuda':
+      return generateHelpMessage();
+    case 'saldos':
+      return generateBalancesMessage();
+    case 'stock':
+      return generateStocksMessage();
+    case 'resumen':
+      return generateDailySummaryMessage();
+    case 'anular':
+      return (await undoLastOperationMessage()).message;
+    default:
+      return generateHelpMessage();
+  }
+}
+
+/** Mensaje de confirmación de una operación registrada (WhatsApp y chat web). */
+export function formatOperationConfirmation(
+  op: Operation,
+  opts: { warnings?: string[]; isReceipt?: boolean; transcription?: string } = {}
+): string {
+  const lines: string[] = [];
+  if (opts.transcription) lines.push(`🎙️ _"${opts.transcription}"_`, '');
+  lines.push(
+    opts.isReceipt
+      ? `🧾 *Comprobante #${op.operationNumber} registrado*`
+      : `✅ *Operación #${op.operationNumber} guardada*`,
+    ''
+  );
+
+  if (op.type === 'GASTO') {
+    lines.push(`📋 *Tipo:* ${opts.isReceipt ? 'Transferencia / Pago' : 'Gasto'}`);
+    lines.push(`💰 *Monto:* ${formatPYG(op.totalPYG)}`);
+    if (op.description) lines.push(`📝 *Detalle:* ${op.description}`);
+    lines.push(`🏦 *Cuenta:* ${op.account}`);
+  } else if (op.currency) {
+    lines.push(`📋 *Tipo:* ${op.type === 'COMPRA' ? '🔵 Compra' : '🟡 Venta'}`);
+    lines.push(`${CURRENCY_FLAGS[op.currency]} *Divisa:* ${CURRENCY_LABELS[op.currency]} (${op.currency})`);
+    lines.push(`💵 *Monto:* ${CURRENCY_SYMBOLS[op.currency]} ${formatCurrency(op.amount || 0)}`);
+    lines.push(`📊 *Cotización:* Gs. ${formatCurrency(op.rate || 0, op.currency === 'ARS' ? 1 : 0)}`);
+    lines.push(`💰 *Total:* ${formatPYG(op.totalPYG)}`);
+    lines.push(`🏦 *Cuenta:* ${op.account}`);
+    if (op.profit !== undefined) {
+      lines.push('', `${op.profit >= 0 ? '🟢' : '🔴'} *Ganancia:* ${op.profit >= 0 ? '+' : ''}${formatPYG(op.profit)}`);
     }
   }
 
-  await supabaseAdmin.from('transactions').delete().eq('id', lastOp.id);
-
-  let undoMsg = `🗑️ *Operación #${lastOp.operation_number} Anulada con éxito!*\n`;
-  undoMsg += `• Tipo: ${lastOp.type}\n`;
-  undoMsg += `• Total revertido: ${formatPYG(Number(lastOp.total_pyg))}\n`;
-  undoMsg += `• Cuenta: ${lastOp.account}\n`;
-  undoMsg += `Todos los saldos y stocks han vuelto a su estado anterior.`;
-
-  return {
-    success: true,
-    message: undoMsg,
-    opNumber: lastOp.operation_number,
-  };
+  if (opts.warnings && opts.warnings.length > 0) {
+    lines.push('', ...opts.warnings.map((w) => `⚠️ ${w}`));
+  }
+  lines.push('', '_Escribí *anular* si te equivocaste._');
+  return lines.join('\n');
 }

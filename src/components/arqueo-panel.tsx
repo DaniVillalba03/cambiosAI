@@ -152,7 +152,7 @@ export function ArqueoPanel() {
           </div>
           <div className="text-center p-3 bg-surface-2/40 rounded-xl border border-profit/20">
             <TrendingUp className="w-5 h-5 text-profit mx-auto mb-1" />
-            <p className="text-xl font-black text-profit">+{formatPYG(summary.currencyProfit)}</p>
+            <p className="text-xl font-semibold text-profit">+{formatPYG(summary.currencyProfit)}</p>
             <p className="text-xs text-profit font-semibold">Ganancia Cambiaria</p>
           </div>
           <div className="text-center p-3 bg-surface-2/40 rounded-xl border border-expense/20">
@@ -195,7 +195,7 @@ export function ArqueoPanel() {
                   </div>
                 </div>
                 <div className="text-right">
-                  <p className="text-lg font-black text-white">
+                  <p className="text-lg font-semibold text-white">
                     {CURRENCY_SYMBOLS[cur]} {formatCurrency(amount, cur === 'ARS' ? 0 : 2)}
                   </p>
                   <p className="text-xs text-gray-400">

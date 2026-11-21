@@ -176,7 +176,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
               </span>
               <span className="text-xs text-gray-400">Suma de efectivo y todos los bancos</span>
             </div>
-            <p className="text-2xl font-black text-accent tracking-tight">
+            <p className="text-2xl font-semibold text-accent tracking-tight">
               {formatPYG(totalPYGCapital)}
             </p>
           </div>
@@ -201,7 +201,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
                     inputMode="numeric"
                     value={formatThousandsInput(balances['Efectivo PYG'] || 0)}
                     onChange={(e) => handleBalanceChange('Efectivo PYG', e.target.value)}
-                    className="w-full bg-transparent text-base font-black text-white outline-none"
+                    className="w-full bg-transparent text-base font-semibold text-white outline-none"
                   />
                 </div>
               </div>
@@ -220,7 +220,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
                       inputMode="numeric"
                       value={formatThousandsInput(balances[bank] || 0)}
                       onChange={(e) => handleBalanceChange(bank, e.target.value)}
-                      className="w-full bg-transparent text-base font-black text-white outline-none"
+                      className="w-full bg-transparent text-base font-semibold text-white outline-none"
                     />
                   </div>
                 </div>
@@ -243,7 +243,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
                   <div className="flex items-center gap-2.5 sm:w-36">
                     <span className="text-3xl select-none">{CURRENCY_FLAGS[cur]}</span>
                     <div>
-                      <p className="text-sm font-black text-white">{cur}</p>
+                      <p className="text-sm font-semibold text-white">{cur}</p>
                       <p className="text-[11px] text-gray-400">{CURRENCY_LABELS[cur]}</p>
                     </div>
                   </div>
@@ -258,7 +258,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
                         inputMode="numeric"
                         value={formatThousandsInput(stocks[cur]?.amount || 0)}
                         onChange={(e) => handleStockAmountChange(cur, e.target.value)}
-                        className="w-full bg-surface-0 border border-border rounded-xl px-3 py-2 text-sm text-white font-black focus:border-accent outline-none"
+                        className="w-full bg-surface-0 border border-border rounded-xl px-3 py-2 text-sm text-white font-semibold focus:border-accent outline-none"
                       />
                     </div>
                     <div>
@@ -270,7 +270,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
                         inputMode="numeric"
                         value={formatThousandsInput(stocks[cur]?.averageCost || 0)}
                         onChange={(e) => handleStockPPPChange(cur, e.target.value)}
-                        className="w-full bg-surface-0 border border-border rounded-xl px-3 py-2 text-sm text-white font-black focus:border-accent outline-none"
+                        className="w-full bg-surface-0 border border-border rounded-xl px-3 py-2 text-sm text-white font-semibold focus:border-accent outline-none"
                       />
                     </div>
                   </div>
@@ -351,7 +351,7 @@ export function AdjustCashModal({ isOpen, onClose }: AdjustCashModalProps) {
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-black rounded-2xl text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+              className="px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-semibold rounded-2xl text-sm transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
             >
               <Save className="w-4 h-4 stroke-[2.5]" />
               {isSaving ? 'Guardando...' : 'Guardar Todo el Capital'}

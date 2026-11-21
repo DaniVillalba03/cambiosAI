@@ -49,7 +49,6 @@ const GEMINI_SCHEMA = {
         'Efectivo BRL',
         'Efectivo ARS',
         'Efectivo EUR',
-        'Ueno Bank',
         'Itaú',
         'Banco Familiar',
         'BNF',
@@ -87,7 +86,7 @@ COMANDOS ESPECIALES DEL SISTEMA:
 
 COMPROBANTES DE PAGO Y TRANSFERENCIAS BANCARIAS (IMÁGENES):
 - Si el usuario envía una imagen de un comprobante de transferencia (SIPAP, extracto, ticket o recibo):
-  1. Identifica el banco o entidad emisora (ej. "Ueno Bank", "Itaú", "Banco Familiar", "BNF", "Continental").
+  1. Identifica el banco o entidad emisora (ej. "Itaú", "Banco Familiar", "BNF", "Continental").
   2. Extrae el monto de la transferencia en Guaraníes (o divisa extranjera si el comprobante es en USD).
   3. En "description", anota el beneficiario o concepto del comprobante (ej: "Transferencia a Juan Pérez - Ref #49281").
   4. Si el comprobante muestra una transferencia realizada / débito / pago de servicio, clasifícalo como tipo "GASTO".
@@ -103,7 +102,7 @@ NOTAS DE VOZ (AUDIOS):
 JERGA Y CUENTAS PARAGUAYAS:
 - "palo" = 1.000.000 guaraníes
 - "mil" o "lucas" = 1.000 guaraníes
-- Cuentas válidas: "Efectivo PYG", "Ueno Bank", "Itaú", "Banco Familiar", "BNF", "Continental"
+- Cuentas válidas: "Efectivo PYG", "Itaú", "Banco Familiar", "BNF", "Continental"
 - Si no menciona banco o cuenta, usar "Efectivo PYG"
 - "en efectivo" o "cash" o "en mano" = "Efectivo PYG"
 
@@ -174,11 +173,11 @@ export async function parseOperationWithAIOrFallback(
 
       let userPrompt = SYSTEM_PROMPT;
       let model = 'gemini-3.5-flash-lite';
-      let timeoutMs = 4000;
+      let timeoutMs = 8000;
 
       if (mediaObj.audioBase64) {
         model = 'gemini-3.5-flash';
-        timeoutMs = 9000;
+        timeoutMs = 20000;
         userPrompt += cleanText
           ? `\n\nNota de voz del usuario con texto adjunto: "${cleanText}". Escucha el audio, transcríbelo en "transcription" y extrae la operación:`
           : '\n\nNota de voz del usuario. Escucha atentamente el audio, transcríbelo en "transcription" y extrae la operación cambiaria o comando:';
@@ -191,7 +190,7 @@ export async function parseOperationWithAIOrFallback(
         });
       } else if (mediaObj.imageBase64) {
         model = 'gemini-3.5-flash';
-        timeoutMs = 9000;
+        timeoutMs = 20000;
         userPrompt += cleanText
           ? `\n\nComprobante de pago o transferencia bancaria enviado por el usuario con mensaje: "${cleanText}". Analiza los datos del comprobante y extrae la operación:`
           : '\n\nComprobante de pago o transferencia bancaria enviado por el usuario. Analiza el comprobante (banco, monto, destinatario/concepto) y extrae la operación:';
@@ -274,6 +273,6 @@ export async function parseOperationWithAIOrFallback(
   return {
     success: false,
     source: 'local',
-    error: 'No pude interpretar la operación o comprobante. Podés escribir por ejemplo: "Compré 500 dólares a 7750 por Ueno", mandar una foto del comprobante o dictar una nota de voz.',
+    error: 'No pude interpretar la operación o comprobante. Podés escribir por ejemplo: "Compré 500 dólares a 7750 por Itaú", mandar una foto del comprobante o dictar una nota de voz.',
   };
 }

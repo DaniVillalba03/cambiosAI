@@ -104,7 +104,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center font-black tracking-tighter shrink-0 select-none shadow-sm transition-transform duration-200',
+          'flex items-center justify-center font-semibold tracking-tighter shrink-0 select-none shadow-sm transition-transform duration-200',
           sizeClasses[size],
           roundedClasses[size],
           'bg-gradient-to-br from-[#7C3AED] via-[#6366F1] to-[#4F46E5] text-white ring-1 ring-violet-400/40 shadow-violet-500/20',
@@ -112,7 +112,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         )}
         title="Ueno Bank"
       >
-        <span className="font-sans font-extrabold lowercase leading-none translate-y-[-0.5px]">
+        <span className="font-sans font-semibold lowercase leading-none translate-y-[-0.5px]">
           u<span className="text-[#38BDF8]">.</span>
         </span>
       </div>
@@ -132,7 +132,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         )}
         title="Banco Itaú"
       >
-        <span className="font-sans font-black lowercase tracking-tighter text-white">
+        <span className="font-sans font-semibold lowercase tracking-tighter text-white">
           i<span className="text-yellow-300">t</span>
         </span>
       </div>
@@ -144,7 +144,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center font-black shrink-0 select-none shadow-sm transition-transform duration-200',
+          'flex items-center justify-center font-semibold shrink-0 select-none shadow-sm transition-transform duration-200',
           sizeClasses[size],
           roundedClasses[size],
           'bg-gradient-to-br from-[#0284C7] via-[#0369A1] to-[#0C4A6E] text-white ring-1 ring-sky-400/40 shadow-sky-500/20',
@@ -152,7 +152,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         )}
         title="Banco Familiar"
       >
-        <span className="font-sans font-black tracking-tighter text-white">
+        <span className="font-sans font-semibold tracking-tighter text-white">
           F<span className="text-sky-300">.</span>
         </span>
       </div>
@@ -164,7 +164,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center font-black tracking-tight shrink-0 select-none shadow-sm transition-transform duration-200',
+          'flex items-center justify-center font-semibold tracking-tight shrink-0 select-none shadow-sm transition-transform duration-200',
           sizeClasses[size],
           roundedClasses[size],
           'bg-gradient-to-br from-[#DC2626] via-[#B91C1C] to-[#7F1D1D] text-white ring-1 ring-red-400/40 shadow-red-500/20',
@@ -172,7 +172,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         )}
         title="Banco Nacional de Fomento (BNF)"
       >
-        <span className="font-sans font-extrabold tracking-tight text-white text-[10px] leading-none">
+        <span className="font-sans font-semibold tracking-tight text-white text-[10px] leading-none">
           BNF
         </span>
       </div>
@@ -184,7 +184,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
     return (
       <div
         className={cn(
-          'flex items-center justify-center font-black shrink-0 select-none shadow-sm transition-transform duration-200',
+          'flex items-center justify-center font-semibold shrink-0 select-none shadow-sm transition-transform duration-200',
           sizeClasses[size],
           roundedClasses[size],
           'bg-gradient-to-br from-[#F59E0B] via-[#D97706] to-[#92400E] text-white ring-1 ring-amber-400/40 shadow-amber-500/20',
@@ -192,7 +192,7 @@ export function BankLogo({ account, size = 'md', className }: BankLogoProps) {
         )}
         title="Banco Continental"
       >
-        <span className="font-serif font-black text-white text-[11px] leading-none">
+        <span className="font-serif font-semibold text-white text-[11px] leading-none">
           C
         </span>
       </div>

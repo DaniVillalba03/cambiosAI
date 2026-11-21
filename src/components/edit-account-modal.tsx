@@ -84,7 +84,7 @@ export function EditAccountModal({
               <span className="text-xs font-bold uppercase tracking-wider text-accent block">
                 {isEfectivo ? 'Caja de Efectivo' : 'Cuenta Bancaria'}
               </span>
-              <h2 className="text-xl sm:text-2xl font-black text-white">{account}</h2>
+              <h2 className="text-xl sm:text-2xl font-semibold text-white">{account}</h2>
             </div>
           </div>
           <button
@@ -115,7 +115,7 @@ export function EditAccountModal({
               </span>
             </label>
             <div className="relative flex items-center bg-surface-0 border-2 border-accent/40 focus-within:border-accent rounded-2xl px-4 py-3 shadow-inner transition-colors">
-              <span className="text-xl sm:text-2xl font-black text-accent mr-2 select-none">
+              <span className="text-xl sm:text-2xl font-semibold text-accent mr-2 select-none">
                 Gs.
               </span>
               <input
@@ -123,7 +123,7 @@ export function EditAccountModal({
                 inputMode="numeric"
                 value={displayValue}
                 onChange={(e) => handleInputChange(e.target.value)}
-                className="w-full bg-transparent text-2xl sm:text-3xl font-black text-white outline-none tracking-tight"
+                className="w-full bg-transparent text-2xl sm:text-3xl font-semibold text-white outline-none tracking-tight"
                 placeholder="0"
                 autoFocus
               />
@@ -227,7 +227,7 @@ export function EditAccountModal({
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="flex-1 py-4 px-6 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-black text-base rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            className="flex-1 py-4 px-6 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-semibold text-base rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
             {justSaved ? (
               <>

@@ -9,13 +9,13 @@ export type Account =
   | 'Efectivo BRL'
   | 'Efectivo ARS'
   | 'Efectivo EUR'
-  | 'Ueno Bank'
+  | 'Ueno Bank' // cuenta eliminada: solo para operaciones históricas
   | 'Itaú'
   | 'Banco Familiar'
   | 'BNF'
   | 'Continental';
 
-export type BankAccount = 'Ueno Bank' | 'Itaú' | 'Banco Familiar' | 'BNF' | 'Continental';
+export type BankAccount = 'Itaú' | 'Banco Familiar' | 'BNF' | 'Continental';
 export type CashAccount = 'Efectivo PYG' | 'Efectivo USD' | 'Efectivo BRL' | 'Efectivo ARS' | 'Efectivo EUR';
 
 export interface Operation {
@@ -116,7 +116,7 @@ export const CURRENCY_FLAGS: Record<Currency, string> = {
   EUR: '🇪🇺',
 };
 
-export const BANK_ACCOUNTS: BankAccount[] = ['Ueno Bank', 'Itaú', 'Banco Familiar', 'BNF', 'Continental'];
+export const BANK_ACCOUNTS: BankAccount[] = ['Itaú', 'Banco Familiar', 'BNF', 'Continental'];
 
 export const ALL_ACCOUNTS: Account[] = [
   'Efectivo PYG',
@@ -124,7 +124,6 @@ export const ALL_ACCOUNTS: Account[] = [
   'Efectivo BRL',
   'Efectivo ARS',
   'Efectivo EUR',
-  'Ueno Bank',
   'Itaú',
   'Banco Familiar',
   'BNF',
@@ -139,3 +138,6 @@ export const BANK_COLORS: Record<string, { bg: string; text: string; accent: str
   'BNF': { bg: 'from-red-600/20 to-red-800/20', text: 'text-red-400', accent: 'border-red-500/30' },
   'Continental': { bg: 'from-yellow-600/20 to-yellow-800/20', text: 'text-yellow-400', accent: 'border-yellow-500/30' },
 };
+
+/** Dueño de la caja: se usa en saludos de la web y del bot */
+export const OWNER_NAME = 'Pedro';

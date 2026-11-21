@@ -80,7 +80,7 @@ export function DeleteOpModal({ operation, isOpen, onClose, onConfirm }: DeleteO
                 {operation.description || 'Gasto'}
               </span>
             )}
-            <span className="text-base font-extrabold text-white">
+            <span className="text-base font-semibold text-white">
               {formatPYG(operation.totalPYG)}
             </span>
           </div>

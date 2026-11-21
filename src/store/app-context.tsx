@@ -10,14 +10,12 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { AppState, Currency, Operation, Account, CurrencyStock } from '@/types';
+import { AppState, Currency, Account, CurrencyStock, Operation } from '@/types';
 import { createSeedData, createEmptyState } from '@/lib/seed-data';
-import { generateId, isToday } from '@/lib/utils';
+import { isToday } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import {
   loadStateFromSupabase,
-  syncTransactionToSupabase,
-  deleteTransactionFromSupabase,
   saveInitialBalancesToSupabase,
   saveSingleAccountBalanceToSupabase,
   saveSingleCurrencyStockToSupabase,
@@ -29,8 +27,6 @@ import {
 // ─── Actions ───
 type Action =
   | { type: 'LOAD_STATE'; payload: AppState }
-  | { type: 'ADD_OPERATION'; payload: Omit<Operation, 'id' | 'operationNumber' | 'profit'> }
-  | { type: 'DELETE_OPERATION'; payload: string }
   | {
       type: 'SET_INITIAL_BALANCES';
       payload: {
@@ -54,101 +50,6 @@ function appReducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'LOAD_STATE':
       return action.payload;
-
-    case 'ADD_OPERATION': {
-      const op = action.payload;
-      const newState = structuredClone(state);
-      const operationNumber = newState.nextOperationNumber;
-      let profit: number | undefined;
-
-      if (op.type === 'COMPRA' && op.currency && op.amount && op.rate) {
-        const totalPYG = op.amount * op.rate;
-        newState.accountBalances[op.account] -= totalPYG;
-        const cashAccount = `Efectivo ${op.currency}` as Account;
-        newState.accountBalances[cashAccount] = (newState.accountBalances[cashAccount] || 0) + op.amount;
-
-        const stock = newState.currencyStocks[op.currency];
-        stock.totalCostPYG += totalPYG;
-        stock.amount += op.amount;
-        stock.averageCost = stock.amount > 0 ? stock.totalCostPYG / stock.amount : 0;
-
-        const newOp: Operation = {
-          ...op,
-          id: generateId(),
-          operationNumber,
-          totalPYG,
-          profit: undefined,
-        };
-        newState.operations.push(newOp);
-      } else if (op.type === 'VENTA' && op.currency && op.amount && op.rate) {
-        const totalPYG = op.amount * op.rate;
-        const stock = newState.currencyStocks[op.currency];
-        const avgCost = stock.averageCost;
-        profit = Math.round((op.rate - avgCost) * op.amount);
-
-        const cashAccount = `Efectivo ${op.currency}` as Account;
-        newState.accountBalances[cashAccount] = (newState.accountBalances[cashAccount] || 0) - op.amount;
-        newState.accountBalances[op.account] += totalPYG;
-
-        const costOfSold = avgCost * op.amount;
-        stock.amount -= op.amount;
-        stock.totalCostPYG = Math.max(0, stock.totalCostPYG - costOfSold);
-        stock.averageCost = stock.amount > 0 ? stock.totalCostPYG / stock.amount : 0;
-
-        const newOp: Operation = {
-          ...op,
-          id: generateId(),
-          operationNumber,
-          totalPYG,
-          profit,
-        };
-        newState.operations.push(newOp);
-      } else if (op.type === 'GASTO') {
-        newState.accountBalances[op.account] -= op.totalPYG;
-        const newOp: Operation = {
-          ...op,
-          id: generateId(),
-          operationNumber,
-          profit: undefined,
-        };
-        newState.operations.push(newOp);
-      }
-
-      newState.nextOperationNumber = operationNumber + 1;
-      return newState;
-    }
-
-    case 'DELETE_OPERATION': {
-      const opId = action.payload;
-      const op = state.operations.find((o) => o.id === opId);
-      if (!op) return state;
-
-      const newState = structuredClone(state);
-
-      if (op.type === 'COMPRA' && op.currency && op.amount && op.rate) {
-        newState.accountBalances[op.account] += op.totalPYG;
-        const cashAccount = `Efectivo ${op.currency}` as Account;
-        newState.accountBalances[cashAccount] = (newState.accountBalances[cashAccount] || 0) - op.amount;
-        const stock = newState.currencyStocks[op.currency];
-        stock.totalCostPYG -= op.totalPYG;
-        stock.amount -= op.amount;
-        stock.averageCost = stock.amount > 0 ? stock.totalCostPYG / stock.amount : 0;
-      } else if (op.type === 'VENTA' && op.currency && op.amount && op.rate) {
-        const cashAccount = `Efectivo ${op.currency}` as Account;
-        newState.accountBalances[cashAccount] = (newState.accountBalances[cashAccount] || 0) + op.amount;
-        newState.accountBalances[op.account] -= op.totalPYG;
-        const stock = newState.currencyStocks[op.currency];
-        const costOfSold = (op.rate - (op.profit || 0) / op.amount) * op.amount;
-        stock.amount += op.amount;
-        stock.totalCostPYG += costOfSold;
-        stock.averageCost = stock.amount > 0 ? stock.totalCostPYG / stock.amount : 0;
-      } else if (op.type === 'GASTO') {
-        newState.accountBalances[op.account] += op.totalPYG;
-      }
-
-      newState.operations = newState.operations.filter((o) => o.id !== opId);
-      return newState;
-    }
 
     case 'SET_INITIAL_BALANCES': {
       return {
@@ -217,8 +118,7 @@ function appReducer(state: AppState, action: Action): AppState {
 interface AppContextValue {
   state: AppState;
   isLoaded: boolean;
-  addOperation: (op: Omit<Operation, 'id' | 'operationNumber' | 'profit'>) => void;
-  deleteOperation: (id: string) => void;
+  deleteOperation: (id: string) => Promise<boolean>;
   updateInitialBalances: (
     accountBalances: Record<Account, number>,
     currencyStocks: Record<Currency, CurrencyStock>
@@ -237,6 +137,7 @@ interface AppContextValue {
   todayNetFlow: number; // Flujo Neto Final = Ganancia Cambiaria - Gastos
   todayVolume: number;
   supabaseStatus: SupabaseSyncStatus;
+  realtimeStatus: string;
   refreshFromSupabase: () => Promise<void>;
 }
 
@@ -296,34 +197,33 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refreshFromSupabase();
   }, [refreshFromSupabase]);
 
-  // 2. Suscribirse a cambios en tiempo real (Supabase Realtime)
+  // 2. Suscribirse a cambios en tiempo real (Supabase Realtime).
+  //    Una operación dispara varios eventos (cuentas, stock, transacción):
+  //    agrupamos en una sola recarga con un pequeño debounce.
+  const [realtimeStatus, setRealtimeStatus] = useState<string>('CONNECTING');
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => refreshFromSupabase(), 250);
+    };
+
     const channel = supabase
-      .channel('cambiosai_realtime')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'transactions' },
-        () => {
-          refreshFromSupabase();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'accounts' },
-        () => {
-          refreshFromSupabase();
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'currency_stocks' },
-        () => {
-          refreshFromSupabase();
-        }
-      )
-      .subscribe();
+      .channel('micambio_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'accounts' }, scheduleRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'currency_stocks' }, scheduleRefresh)
+      .subscribe((status) => setRealtimeStatus(status));
+
+    // Al volver a la pestaña/app, refrescar por si se perdió algún evento
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') scheduleRefresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
+      if (timer) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
       supabase.removeChannel(channel);
     };
   }, [refreshFromSupabase]);
@@ -337,48 +237,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state]);
 
-  // 4. Agregar operación (memoria + Supabase)
-  const addOperation = useCallback(
-    (op: Omit<Operation, 'id' | 'operationNumber' | 'profit'>) => {
-      // Primero actualizamos en el reducer
-      dispatch({ type: 'ADD_OPERATION', payload: op });
-
-      // Si Supabase está conectado, sincronizamos en segundo plano
-      setTimeout(async () => {
-        const currentState = stateRef.current;
-        const lastOp = currentState.operations[currentState.operations.length - 1];
-        if (lastOp) {
-          await syncTransactionToSupabase(
-            lastOp,
-            currentState.accountBalances,
-            currentState.currencyStocks
-          );
-        }
-      }, 50);
+  // 4. Eliminar operación: lo hace el servidor (misma lógica que "anular" de WhatsApp)
+  const deleteOperation = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/operations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) return false;
+        await refreshFromSupabase();
+        return true;
+      } catch {
+        return false;
+      }
     },
-    []
+    [refreshFromSupabase]
   );
-
-  // 5. Eliminar operación (memoria + Supabase)
-  const deleteOperation = useCallback((id: string) => {
-    const op = stateRef.current.operations.find((o) => o.id === id);
-    dispatch({ type: 'DELETE_OPERATION', payload: id });
-
-    if (op) {
-      setTimeout(async () => {
-        const currentState = stateRef.current;
-        const affected: Account[] = [op.account];
-        if (op.currency) affected.push(`Efectivo ${op.currency}` as Account);
-        await deleteTransactionFromSupabase(
-          id,
-          currentState.accountBalances,
-          currentState.currencyStocks,
-          affected,
-          op.currency
-        );
-      }, 50);
-    }
-  }, []);
 
   // 6. Configurar saldo inicial / arqueo inicial
   const updateInitialBalances = useCallback(
@@ -453,7 +326,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value={{
         state,
         isLoaded,
-        addOperation,
         deleteOperation,
         updateInitialBalances,
         updateSingleAccountBalance,
@@ -466,6 +338,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         todayNetFlow,
         todayVolume,
         supabaseStatus,
+        realtimeStatus,
         refreshFromSupabase,
       }}
     >

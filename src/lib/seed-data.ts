@@ -41,7 +41,7 @@ export function createSeedData(): AppState {
     'Efectivo BRL': 0,
     'Efectivo ARS': 0,
     'Efectivo EUR': 0,
-    'Ueno Bank': 120_000_000,
+    
     'Itaú': 85_000_000,
     'Banco Familiar': 30_000_000,
     'BNF': 15_000_000,
@@ -109,7 +109,7 @@ export function createSeedData(): AppState {
 
   // ── Seed Operations ──
   // Op1: Bought 1000 USD at 7,750 via Ueno
-  addOp('COMPRA', 'USD', 1000, 7750, 7_750_000, 'Ueno Bank', makeTime(8, 15));
+  addOp('COMPRA', 'USD', 1000, 7750, 7_750_000, 'Itaú', makeTime(8, 15));
 
   // Op2: Bought 500 USD at 7,730 cash
   addOp('COMPRA', 'USD', 500, 7730, 3_865_000, 'Efectivo PYG', makeTime(8, 45));
@@ -124,7 +124,7 @@ export function createSeedData(): AppState {
   addOp('VENTA', 'BRL', 1000, 1560, 1_560_000, 'Efectivo PYG', makeTime(10, 30));
 
   // Op6: Bought 50000 ARS at 8.2 via Ueno
-  addOp('COMPRA', 'ARS', 50000, 8.2, 410_000, 'Ueno Bank', makeTime(11, 0));
+  addOp('COMPRA', 'ARS', 50000, 8.2, 410_000, 'Itaú', makeTime(11, 0));
 
   // Op7: Sold 200 USD at 7,830 via Itaú
   addOp('VENTA', 'USD', 200, 7830, 1_566_000, 'Itaú', makeTime(11, 30));

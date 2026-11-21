@@ -7,7 +7,8 @@ import {
   BarChart3,
   ClipboardCheck,
   ArrowLeftRight,
-  Zap,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAppState } from '@/store/app-context';
@@ -19,11 +20,76 @@ import { ArqueoPanel } from '@/components/arqueo-panel';
 type Tab = 'dashboard' | 'chat' | 'reports' | 'arqueo';
 
 const tabs: { id: Tab; label: string; icon: React.ElementType; shortLabel: string }[] = [
-  { id: 'dashboard', label: 'Mis Saldos y Bancos', icon: LayoutDashboard, shortLabel: 'Bancos' },
-  { id: 'chat', label: 'Registrar Operación', icon: MessageSquare, shortLabel: 'Chat' },
-  { id: 'arqueo', label: 'Cierre de Caja', icon: ClipboardCheck, shortLabel: 'Cierre' },
-  { id: 'reports', label: 'Reportes y Gráficos', icon: BarChart3, shortLabel: 'Reportes' },
+  { id: 'dashboard', label: 'Saldos', icon: LayoutDashboard, shortLabel: 'Saldos' },
+  { id: 'chat', label: 'Registrar', icon: MessageSquare, shortLabel: 'Registrar' },
+  { id: 'arqueo', label: 'Cierre de caja', icon: ClipboardCheck, shortLabel: 'Cierre' },
+  { id: 'reports', label: 'Reportes', icon: BarChart3, shortLabel: 'Reportes' },
 ];
+
+function Logo({ small = false }: { small?: boolean }) {
+  return (
+    <div
+      className={cn(
+        'rounded-xl bg-accent text-surface-0 flex items-center justify-center shrink-0',
+        small ? 'w-8 h-8' : 'w-9 h-9'
+      )}
+    >
+      <ArrowLeftRight className={small ? 'w-4 h-4' : 'w-[18px] h-[18px]'} strokeWidth={2.5} />
+    </div>
+  );
+}
+
+/** Indicador de conexión con Supabase / Realtime */
+function SyncStatus({ compact = false }: { compact?: boolean }) {
+  const { supabaseStatus, realtimeStatus } = useAppState();
+  const live = supabaseStatus.connected && realtimeStatus === 'SUBSCRIBED';
+  const connected = supabaseStatus.connected;
+  const label = live ? 'En vivo' : connected ? 'Conectado' : 'Sin conexión';
+  const color = live ? 'bg-accent' : connected ? 'bg-sell' : 'bg-loss';
+
+  return (
+    <span className="inline-flex items-center gap-2 text-xs text-gray-300">
+      <span className="relative flex w-2 h-2">
+        {live && <span className={cn('absolute inset-0 rounded-full animate-ping opacity-60', color)} />}
+        <span className={cn('relative w-2 h-2 rounded-full', color)} />
+      </span>
+      {!compact && label}
+    </span>
+  );
+}
+
+/** Aviso visible cuando la base de datos no responde: los datos mostrados pueden ser viejos. */
+function ConnectionBanner() {
+  const { supabaseStatus, refreshFromSupabase, isLoaded } = useAppState();
+  const [retrying, setRetrying] = useState(false);
+  if (!isLoaded || supabaseStatus.connected || !supabaseStatus.message) return null;
+
+  return (
+    <div className="mx-4 lg:mx-8 mt-4 flex items-start gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3">
+      <AlertTriangle className="w-4 h-4 text-loss mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-100">No hay conexión con la base de datos</p>
+        <p className="text-xs text-gray-400 mt-0.5 break-words">
+          {supabaseStatus.tableMissing
+            ? supabaseStatus.message
+            : 'Lo que ves es la última copia guardada en este dispositivo y los mensajes de WhatsApp no se están guardando. Revisá el proyecto de Supabase.'}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={async () => {
+          setRetrying(true);
+          await refreshFromSupabase();
+          setRetrying(false);
+        }}
+        className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-gray-200 hover:text-white px-2.5 py-1.5 rounded-lg border border-border hover:border-border-bright"
+      >
+        <RefreshCw className={cn('w-3.5 h-3.5', retrying && 'animate-spin')} />
+        Reintentar
+      </button>
+    </div>
+  );
+}
 
 export function AppShell() {
   const { isLoaded } = useAppState();
@@ -33,10 +99,10 @@ export function AppShell() {
     return (
       <div className="flex h-dvh bg-surface-0 items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center shadow-lg shadow-accent/20 animate-pulse">
-            <ArrowLeftRight className="w-6 h-6 text-surface-0" />
+          <div className="animate-pulse-subtle">
+            <Logo />
           </div>
-          <p className="text-sm font-bold text-gray-300">Cargando tus saldos...</p>
+          <p className="text-sm text-muted">Cargando saldos…</p>
         </div>
       </div>
     );
@@ -44,24 +110,17 @@ export function AppShell() {
 
   return (
     <div className="flex h-dvh bg-surface-0 overflow-hidden">
-
-      {/* ─── Desktop Sidebar ─── */}
-      <aside className="hidden lg:flex flex-col w-64 bg-surface-1 border-r border-border">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-border">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center shadow-lg shadow-accent/10">
-            <ArrowLeftRight className="w-5 h-5 text-surface-0" />
-          </div>
-          <div>
-            <h1 className="font-black text-lg text-white tracking-tight">MiCambio</h1>
-            <p className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
-              Control de Caja & Divisas
-            </p>
+      {/* ─── Sidebar escritorio ─── */}
+      <aside className="hidden lg:flex flex-col w-60 border-r border-border bg-surface-0">
+        <div className="flex items-center gap-3 px-5 h-16">
+          <Logo />
+          <div className="leading-tight">
+            <p className="font-semibold text-[15px] text-white tracking-tight">MiCambio</p>
+            <p className="text-[11px] text-muted">Caja y divisas</p>
           </div>
         </div>
 
-        {/* Nav items */}
-        <nav className="flex-1 py-4 px-3 space-y-1.5">
+        <nav className="flex-1 px-3 py-3 space-y-0.5">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -70,54 +129,46 @@ export function AppShell() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-sm font-bold transition-all duration-200',
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors',
                   isActive
-                    ? 'bg-accent/15 text-accent border border-accent/30 shadow-sm'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-surface-2/60'
+                    ? 'bg-surface-2 text-white font-medium'
+                    : 'text-gray-400 hover:text-gray-100 hover:bg-surface-1'
                 )}
               >
-                <Icon className={cn('w-5 h-5', isActive && 'text-accent')} />
+                <Icon className={cn('w-[18px] h-[18px]', isActive ? 'text-accent' : 'text-gray-500')} />
                 {tab.label}
               </button>
             );
           })}
         </nav>
 
-        {/* Footer */}
-        <div className="px-4 py-4 border-t border-border">
-          <div className="glass-subtle px-4 py-3 rounded-2xl">
-            <p className="text-xs font-bold text-gray-300">Sistema Seguro y Privado</p>
-            <p className="text-[11px] text-gray-500 mt-0.5">Tus datos se guardan al instante</p>
-          </div>
+        <div className="px-5 py-4 border-t border-border">
+          <SyncStatus />
+          <p className="text-[11px] text-muted mt-1.5">WhatsApp y web sincronizados</p>
         </div>
       </aside>
 
-      {/* ─── Main Content ─── */}
+      {/* ─── Contenido ─── */}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        {/* Mobile Header */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-3.5 bg-surface-1/95 backdrop-blur-lg border-b border-border/60 z-10">
+        <header className="lg:hidden flex items-center justify-between px-4 h-14 border-b border-border bg-surface-0/95 backdrop-blur z-10">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-accent to-emerald-400 flex items-center justify-center">
-              <ArrowLeftRight className="w-4 h-4 text-surface-0" />
-            </div>
-            <h1 className="font-black text-base text-white tracking-tight">MiCambio</h1>
+            <Logo small />
+            <span className="font-semibold text-[15px] text-white tracking-tight">MiCambio</span>
           </div>
-          <span className="text-xs font-bold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-500/20">
-            Control de Caja
-          </span>
+          <SyncStatus />
         </header>
 
+        <ConnectionBanner />
 
-        {/* Tab Content */}
         <div className="flex-1 overflow-hidden">
-          {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'dashboard' && <Dashboard onGoToChat={() => setActiveTab('chat')} />}
           {activeTab === 'chat' && <ChatPanel />}
           {activeTab === 'reports' && <ReportsPanel />}
           {activeTab === 'arqueo' && <ArqueoPanel />}
         </div>
 
-        {/* ─── Mobile Bottom Navigation ─── */}
-        <nav className="lg:hidden flex items-stretch bg-surface-1/95 backdrop-blur-lg border-t border-border/50 pb-safe">
+        {/* ─── Navegación móvil ─── */}
+        <nav className="lg:hidden flex items-stretch border-t border-border bg-surface-0/95 backdrop-blur pb-safe">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -126,18 +177,11 @@ export function AppShell() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
                 className={cn(
-                  'flex-1 flex flex-col items-center justify-center py-2.5 gap-0.5 transition-all duration-200',
-                  isActive ? 'text-accent' : 'text-gray-500 active:text-gray-300'
+                  'flex-1 flex flex-col items-center justify-center py-2 gap-1 transition-colors',
+                  isActive ? 'text-white' : 'text-gray-500'
                 )}
               >
-                <div
-                  className={cn(
-                    'p-1.5 rounded-xl transition-all duration-200',
-                    isActive && 'bg-accent/10'
-                  )}
-                >
-                  <Icon className="w-5 h-5" />
-                </div>
+                <Icon className={cn('w-5 h-5', isActive && 'text-accent')} />
                 <span className="text-[10px] font-medium">{tab.shortLabel}</span>
               </button>
             );

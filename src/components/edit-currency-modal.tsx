@@ -93,7 +93,7 @@ export function EditCurrencyModal({
               <span className="text-xs font-bold uppercase tracking-wider text-accent block">
                 Billetes en Mano
               </span>
-              <h2 className="text-xl sm:text-2xl font-black text-white">
+              <h2 className="text-xl sm:text-2xl font-semibold text-white">
                 {label} ({currency})
               </h2>
             </div>
@@ -126,7 +126,7 @@ export function EditCurrencyModal({
               </span>
             </label>
             <div className="relative flex items-center bg-surface-0 border-2 border-accent/40 focus-within:border-accent rounded-2xl px-4 py-3 shadow-inner transition-colors">
-              <span className="text-xl sm:text-2xl font-black text-accent mr-2 select-none">
+              <span className="text-xl sm:text-2xl font-semibold text-accent mr-2 select-none">
                 {symbol}
               </span>
               <input
@@ -134,7 +134,7 @@ export function EditCurrencyModal({
                 inputMode="numeric"
                 value={amountStr}
                 onChange={(e) => handleAmountChange(e.target.value)}
-                className="w-full bg-transparent text-2xl sm:text-3xl font-black text-white outline-none tracking-tight"
+                className="w-full bg-transparent text-2xl sm:text-3xl font-semibold text-white outline-none tracking-tight"
                 placeholder="0"
                 autoFocus
               />
@@ -221,7 +221,7 @@ export function EditCurrencyModal({
             type="button"
             onClick={handleSave}
             disabled={isSaving}
-            className="flex-1 py-4 px-6 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-black text-base rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+            className="flex-1 py-4 px-6 bg-emerald-500 hover:bg-emerald-400 text-surface-0 font-semibold text-base rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2"
           >
             {justSaved ? (
               <>
