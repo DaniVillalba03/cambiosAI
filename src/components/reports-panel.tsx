@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { Download } from 'lucide-react';
 import { useAppState } from '@/store/app-context';
 import { CURRENCIES, CURRENCY_SYMBOLS } from '@/types';
 import { formatPYG, formatCurrency, toLocalISODate, getPreviousDay, isSameDay, cn } from '@/lib/utils';
@@ -104,7 +105,7 @@ export function ReportsPanel() {
           <p className="text-sm text-ink-3 mt-2 px-1">Ganancia por cambios menos gastos de cada día.</p>
         </section>
 
-        <section className="pb-6">
+        <section>
           <SectionHeader title="Por moneda" />
           {byCurrency.length === 0 ? (
             <div className="card px-6 py-10 text-center text-base text-ink-2">No hubo compras ni ventas esta semana.</div>
@@ -129,6 +130,24 @@ export function ReportsPanel() {
               })}
             </div>
           )}
+        </section>
+
+        <section className="pb-6">
+          <SectionHeader title="Copia de seguridad" />
+          <div className="card p-5">
+            <p className="text-base text-ink-2">
+              Todos los domingos se guarda una copia automática. También podés bajar una ahora y guardarla en tu
+              computadora o en el celular.
+            </p>
+            <a
+              href="/api/backup"
+              download
+              className="mt-4 inline-flex items-center justify-center gap-2 h-12 px-5 rounded-xl border border-line-strong bg-card text-base font-semibold text-ink hover:bg-fill"
+            >
+              <Download className="w-5 h-5" />
+              Descargar copia
+            </a>
+          </div>
         </section>
       </div>
     </div>

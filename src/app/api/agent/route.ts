@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const { operation, warnings } = await recordOperation(validation.op);
+    const { operation, warnings } = await recordOperation(validation.op, { registeredBy: 'Web', source: 'web' });
     return NextResponse.json({
       success: true,
       operation,

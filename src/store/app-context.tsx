@@ -10,8 +10,8 @@ import React, {
   useCallback,
   useRef,
 } from 'react';
-import { AppState, Currency, Account, CurrencyStock, Operation } from '@/types';
-import { createSeedData, createEmptyState } from '@/lib/seed-data';
+import { AppState, Currency, Account, CurrencyStock, Operation, AgentResponse } from '@/types';
+import { createEmptyState } from '@/lib/seed-data';
 import { isToday } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import {
@@ -19,7 +19,6 @@ import {
   saveInitialBalancesToSupabase,
   saveSingleAccountBalanceToSupabase,
   saveSingleCurrencyStockToSupabase,
-  clearTransactionsInSupabase,
   SupabaseSyncStatus,
 } from '@/lib/supabase-service';
 
@@ -41,9 +40,7 @@ type Action =
   | {
       type: 'SET_SINGLE_CURRENCY_STOCK';
       payload: { currency: Currency; amount: number; averageCost?: number };
-    }
-  | { type: 'CLEAR_HISTORY' }
-  | { type: 'RESET' };
+    };
 
 // ─── Reducer ───
 function appReducer(state: AppState, action: Action): AppState {
@@ -98,17 +95,6 @@ function appReducer(state: AppState, action: Action): AppState {
     }
 
 
-    case 'CLEAR_HISTORY': {
-      return {
-        ...state,
-        operations: [],
-        nextOperationNumber: 1,
-      };
-    }
-
-    case 'RESET':
-      return createSeedData();
-
     default:
       return state;
   }
@@ -129,8 +115,8 @@ interface AppContextValue {
     amount: number,
     averageCost?: number
   ) => Promise<boolean>;
-  clearHistory: () => Promise<boolean>;
-  resetData: () => void;
+  /** Corrige una operación. Devuelve null si salió bien o el mensaje de error. */
+  updateOperation: (id: string, changes: AgentResponse) => Promise<string | null>;
   todayOperations: Operation[];
   todayProfit: number; // Ganancia Cambiaria Pura por Spread
   todayExpenses: number; // Gastos Operativos / Personales
@@ -296,15 +282,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     []
   );
 
-  // 7. Limpiar operaciones de prueba para arrancar en cero
-  const clearHistory = useCallback(async () => {
-    dispatch({ type: 'CLEAR_HISTORY' });
-    return await clearTransactionsInSupabase();
-  }, []);
-
-  const resetData = useCallback(() => {
-    dispatch({ type: 'RESET' });
-  }, []);
+  // 5. Corregir operación: el servidor revierte la original y aplica la nueva (atómico)
+  const updateOperation = useCallback(
+    async (id: string, changes: AgentResponse) => {
+      try {
+        const res = await fetch(`/api/operations/${encodeURIComponent(id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(changes),
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) return json?.error || 'No se pudo guardar el cambio.';
+        await refreshFromSupabase();
+        return null;
+      } catch {
+        return 'No hay conexión. Intentá de nuevo.';
+      }
+    },
+    [refreshFromSupabase]
+  );
 
   // Métricas calculadas
   const todayOperations = state.operations.filter((op) => isToday(op.timestamp));
@@ -330,8 +326,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updateInitialBalances,
         updateSingleAccountBalance,
         updateSingleCurrencyStock,
-        clearHistory,
-        resetData,
+        updateOperation,
         todayOperations,
         todayProfit,
         todayExpenses,

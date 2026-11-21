@@ -1,18 +1,17 @@
 {
-  "name": "CambiosAI",
-  "short_name": "CambiosAI",
-  "description": "Control cambiario inteligente con IA para operadores en Paraguay",
+  "name": "MiCambio · Caja y divisas",
+  "short_name": "MiCambio",
+  "description": "Control de caja, bancos y divisas. Registro por WhatsApp o desde la app.",
+  "lang": "es-PY",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0a0e17",
-  "theme_color": "#0a0e17",
+  "background_color": "#f6f4ef",
+  "theme_color": "#f6f4ef",
   "orientation": "portrait",
   "icons": [
-    {
-      "src": "/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any maskable"
-    }
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

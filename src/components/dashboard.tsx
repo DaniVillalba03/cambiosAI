@@ -1,7 +1,16 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { ChevronRight, ArrowDownLeft, ArrowUpRight, Receipt, Trash2, PencilLine, SlidersHorizontal } from 'lucide-react';
+import {
+  ChevronRight,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Receipt,
+  PencilLine,
+  SlidersHorizontal,
+  ArrowLeftRight,
+  Download,
+} from 'lucide-react';
 import { useAppState } from '@/store/app-context';
 import { formatPYG, formatCurrency, formatTime, toLocalISODate, isSameDay, cn } from '@/lib/utils';
 import {
@@ -17,7 +26,8 @@ import { AdjustCashModal } from './adjust-cash-modal';
 import { EditAccountModal } from './edit-account-modal';
 import { EditCurrencyModal } from './edit-currency-modal';
 import { BankLogo } from './bank-logo';
-import { DeleteOpModal } from './delete-op-modal';
+import { OperationSheet } from './operation-sheet';
+import { InstallApp } from './install-app';
 import { DateSelector } from './date-selector';
 import { SectionHeader } from './ui';
 import type { Tab } from './app-shell';
@@ -39,8 +49,12 @@ export function signed(n: number) {
 }
 
 /** Descripción en palabras de una operación. */
+const accName = (a?: string) => (a === 'Efectivo PYG' ? 'Efectivo' : a || '');
+
 export function describeOperation(op: Operation): string {
   if (op.type === 'GASTO') return op.description ? `Gasto: ${op.description}` : 'Gasto';
+  if (op.type === 'INGRESO') return op.description ? `Entró: ${op.description}` : 'Entró plata';
+  if (op.type === 'TRANSFERENCIA') return `Pasó de ${accName(op.account)} a ${accName(op.toAccount)}`;
   const qty =
     op.currency && op.amount
       ? `${CURRENCY_SYMBOLS[op.currency]} ${formatCurrency(op.amount, op.currency === 'ARS' ? 0 : 2)}`
@@ -53,7 +67,16 @@ export const OP_STYLE = {
   COMPRA: { icon: ArrowDownLeft, cls: 'bg-[#e6eef8] text-[#2b5c9e]' },
   VENTA: { icon: ArrowUpRight, cls: 'bg-brand-soft text-brand' },
   GASTO: { icon: Receipt, cls: 'bg-warn-soft text-warn' },
+  INGRESO: { icon: Download, cls: 'bg-brand-soft text-pos' },
+  TRANSFERENCIA: { icon: ArrowLeftRight, cls: 'bg-fill text-ink-2' },
 } as const;
+
+/** Signo del monto en la lista: + entra plata en guaraníes, − sale, nada si solo se mueve. */
+export function amountSign(op: Operation) {
+  if (op.type === 'VENTA' || op.type === 'INGRESO') return '+';
+  if (op.type === 'TRANSFERENCIA') return '';
+  return '−';
+}
 
 function Row({ onClick, children }: { onClick?: () => void; children: React.ReactNode }) {
   return (
@@ -68,12 +91,12 @@ function Row({ onClick, children }: { onClick?: () => void; children: React.Reac
 }
 
 export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
-  const { state, deleteOperation, updateSingleAccountBalance, updateSingleCurrencyStock } = useAppState();
+  const { state, updateSingleAccountBalance, updateSingleCurrencyStock } = useAppState();
 
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [accountToEdit, setAccountToEdit] = useState<Account | null>(null);
   const [currencyToEdit, setCurrencyToEdit] = useState<Currency | null>(null);
-  const [opToDelete, setOpToDelete] = useState<Operation | null>(null);
+  const [opOpen, setOpOpen] = useState<Operation | null>(null);
 
   const todayStr = useMemo(() => toLocalISODate(new Date()), []);
   const [selectedDate, setSelectedDate] = useState(todayStr);
@@ -205,6 +228,8 @@ export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
           </section>
         </div>
 
+        <InstallApp />
+
         {/* ─── Movimientos ─── */}
         <section className="pb-6">
           <SectionHeader title="Movimientos" />
@@ -226,7 +251,12 @@ export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
                   const st = OP_STYLE[op.type];
                   const Icon = st.icon;
                   return (
-                    <li key={op.id} className="flex items-start gap-3 sm:gap-4 pl-4 sm:pl-5 pr-2 py-4">
+                    <li key={op.id}>
+                      <button
+                        type="button"
+                        onClick={() => setOpOpen(op)}
+                        className="w-full text-left flex items-start gap-3 sm:gap-4 pl-4 sm:pl-5 pr-3 py-4 hover:bg-fill/60 transition-colors"
+                      >
                       <span className={cn('w-10 h-10 rounded-full flex items-center justify-center shrink-0', st.cls)}>
                         <Icon className="w-5 h-5" />
                       </span>
@@ -235,12 +265,14 @@ export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
                         <div className="flex-1 min-w-0">
                           <p className="text-base text-ink leading-snug break-words">{describeOperation(op)}</p>
                           <p className="text-sm text-ink-3 mt-0.5">
-                            {formatTime(op.timestamp)} · {op.account === 'Efectivo PYG' ? 'Efectivo' : op.account}
+                            {formatTime(op.timestamp)}
+                            {op.type !== 'TRANSFERENCIA' && <> · {accName(op.account)}</>}
+                            {op.registeredBy && <> · {op.registeredBy}</>}
                           </p>
                         </div>
                         <div className="mt-1.5 sm:mt-0 sm:text-right shrink-0 flex sm:block items-baseline gap-3">
                           <p className="money text-lg font-semibold text-ink whitespace-nowrap">
-                            {op.type === 'VENTA' ? '+' : '−'}
+                            {amountSign(op)}
                             {formatPYG(op.totalPYG)}
                           </p>
                           {op.profit !== undefined && (
@@ -250,14 +282,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
                           )}
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setOpToDelete(op)}
-                        className="w-11 h-11 -my-0.5 shrink-0 rounded-full flex items-center justify-center text-ink-3 hover:text-neg hover:bg-neg-soft"
-                        aria-label={`Borrar operación ${op.operationNumber}`}
-                        title="Borrar"
-                      >
-                        <Trash2 className="w-5 h-5" />
+                      <ChevronRight className="w-5 h-5 text-ink-3 shrink-0 mt-2.5" />
                       </button>
                     </li>
                   );
@@ -287,12 +312,7 @@ export function Dashboard({ onNavigate }: { onNavigate?: (tab: Tab) => void }) {
         }}
       />
       <AdjustCashModal isOpen={adjustOpen} onClose={() => setAdjustOpen(false)} />
-      <DeleteOpModal
-        operation={opToDelete}
-        isOpen={!!opToDelete}
-        onClose={() => setOpToDelete(null)}
-        onConfirm={(id) => deleteOperation(id)}
-      />
+      <OperationSheet operation={opOpen} onClose={() => setOpOpen(null)} />
     </div>
   );
 }

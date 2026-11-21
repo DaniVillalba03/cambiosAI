@@ -10,7 +10,9 @@ REGLAS DE NEGOCIO:
 - Divisas: USD (dólar), BRL (real brasileño), ARS (peso argentino), EUR (euro)
 - COMPRA: el cambista compra moneda extranjera (entra divisa, sale PYG)
 - VENTA: el cambista vende moneda extranjera (sale divisa, entra PYG)
-- GASTO: gasto operativo, pago a proveedores o transferencias bancarias en guaraníes
+- GASTO: plata que SALE de una cuenta: gasto operativo, pago a proveedores, transferencia enviada a otra persona
+- INGRESO: plata que ENTRA a una cuenta sin ser venta de divisas: cobro, depósito recibido, transferencia recibida de otra persona (ej: "me depositaron 2 palos en Itaú", "entró un pago de 500 mil")
+- TRANSFERENCIA: mover plata entre las propias cuentas del cambista (ej: "pasé 5 palos de Itaú a efectivo", "saqué 2 millones del Familiar", "deposité 3 palos de efectivo en BNF"). "account" = cuenta de origen, "toAccount" = cuenta de destino. "Saqué del banco" = del banco a "Efectivo PYG"; "deposité en el banco" = de "Efectivo PYG" al banco.
 
 COMANDOS ESPECIALES DEL SISTEMA:
 - Si el usuario pide ayuda, explicaciones o qué cosas puede hacer (ej: "ayuda", "help", "¿qué comandos tenés?", "¿cómo funciona?", "menú"):
@@ -29,7 +31,10 @@ COMPROBANTES DE PAGO Y TRANSFERENCIAS BANCARIAS (IMÁGENES):
   1. Identifica el banco o entidad emisora (ej. "Itaú", "Banco Familiar", "BNF", "Continental").
   2. Extrae el monto de la transferencia en Guaraníes (o divisa extranjera si el comprobante es en USD).
   3. En "description", anota el beneficiario o concepto del comprobante (ej: "Transferencia a Juan Pérez - Ref #49281").
-  4. Si el comprobante muestra una transferencia realizada / débito / pago de servicio, clasifícalo como tipo "GASTO".
+  4. MUY IMPORTANTE, mirá la dirección del dinero:
+     - Transferencia ENVIADA / realizada / débito / pago de servicio (el cambista pagó): tipo "GASTO", account = banco desde donde salió.
+     - Transferencia RECIBIDA / acreditación / "te transfirieron" / el beneficiario es el cambista: tipo "INGRESO", account = banco donde entró.
+     - Si el origen y el destino son cuentas del cambista (ej. de su Itaú a su Familiar): tipo "TRANSFERENCIA".
   5. Si el usuario acompañó la imagen con un texto (ej: "compré 200 dólares con esta transferencia"), respeta la intención del usuario ("COMPRA" de 200 USD).
 
 NOTAS DE VOZ (AUDIOS):
@@ -48,10 +53,10 @@ JERGA Y CUENTAS PARAGUAYAS:
 
 CÁLCULOS:
 - totalPYG = amount * rate (para COMPRA y VENTA)
-- Para GASTO, totalPYG es el monto de la transferencia o gasto
+- Para GASTO, INGRESO y TRANSFERENCIA, totalPYG es el monto en guaraníes
 
 FORMATO DE RESPUESTA (JSON, sin texto adicional). Incluí SIEMPRE todos los campos que correspondan:
-- Operación: {"isCommand": false, "type": "COMPRA"|"VENTA"|"GASTO", "currency": "USD"|"BRL"|"ARS"|"EUR" (no en GASTO), "amount": número (cantidad de divisa, no en GASTO), "rate": número (Gs. por unidad, no en GASTO), "totalPYG": número (OBLIGATORIO: monto total en guaraníes sin puntos), "account": cuenta válida, "description": texto (en GASTO: concepto o beneficiario), "transcription": texto (solo si hubo audio)}
+- Operación: {"isCommand": false, "type": "COMPRA"|"VENTA"|"GASTO"|"INGRESO"|"TRANSFERENCIA", "currency": "USD"|"BRL"|"ARS"|"EUR" (solo COMPRA/VENTA), "amount": número (cantidad de divisa, solo COMPRA/VENTA), "rate": número (Gs. por unidad, solo COMPRA/VENTA), "totalPYG": número (OBLIGATORIO: monto total en guaraníes sin puntos), "account": cuenta válida (en TRANSFERENCIA: origen), "toAccount": cuenta válida (solo TRANSFERENCIA: destino), "description": texto (concepto, beneficiario u ordenante), "transcription": texto (solo si hubo audio)}
 - Comando: {"isCommand": true, "command": "ayuda"|"resumen"|"saldos"|"stock"|"anular", "transcription": texto (solo si hubo audio)}
 - Los montos son números puros: "Gs. 2.350.000" → 2350000.`;
 

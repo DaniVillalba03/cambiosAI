@@ -2,6 +2,8 @@
 -- MiCambio - Esquema de Base de Datos para Supabase
 -- Ejecutá este script completo en el SQL Editor de tu proyecto Supabase.
 -- Es idempotente: se puede volver a ejecutar sin romper nada.
+-- IMPORTANTE: después ejecutá también supabase-migration-002.sql (funciones atómicas,
+-- ingresos, transferencias, confirmación de comprobantes y bucket de copias).
 -- ========================================================
 
 -- 1. Cuentas y cajas (Guaraníes y divisas)

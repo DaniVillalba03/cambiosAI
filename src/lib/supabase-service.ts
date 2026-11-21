@@ -96,12 +96,15 @@ export async function loadStateFromSupabase(): Promise<{
       timestamp: row.timestamp,
       type: row.type,
       currency: row.currency || undefined,
-      amount: row.amount ? Number(row.amount) : undefined,
+      amount: row.amount !== null && row.amount !== undefined ? Number(row.amount) : undefined,
       rate: row.rate ? Number(row.rate) : undefined,
       totalPYG: Number(row.total_pyg),
       account: row.account as Account,
+      toAccount: (row.to_account as Account) || undefined,
       profit: row.profit !== null && row.profit !== undefined ? Number(row.profit) : undefined,
       description: row.description || undefined,
+      registeredBy: row.registered_by || undefined,
+      source: row.source || undefined,
     }));
 
     const maxOpNum = operations.reduce((max, op) => Math.max(max, op.operationNumber), 0);
@@ -125,114 +128,6 @@ export async function loadStateFromSupabase(): Promise<{
         message: err.message || 'No se pudo conectar a Supabase',
       },
     };
-  }
-}
-
-/**
- * Guarda una nueva transacción y actualiza saldos en Supabase
- */
-export async function syncTransactionToSupabase(
-  op: Operation,
-  newBalances: Record<Account, number>,
-  newStocks: Record<Currency, AppState['currencyStocks'][Currency]>
-): Promise<boolean> {
-  try {
-    // 1. Insertar transacción
-    const { error: txErr } = await supabase.from('transactions').upsert({
-      id: op.id,
-      operation_number: op.operationNumber,
-      timestamp: op.timestamp,
-      type: op.type,
-      currency: op.currency || null,
-      amount: op.amount || null,
-      rate: op.rate || null,
-      total_pyg: op.totalPYG,
-      account: op.account,
-      profit: op.profit ?? null,
-      description: op.description || null,
-    });
-
-    if (txErr) {
-      console.warn('Error syncing tx to Supabase:', txErr);
-      return false;
-    }
-
-    // 2. Actualizar cuenta afectada
-    const affectedAccounts: Account[] = [op.account];
-    if (op.currency) {
-      affectedAccounts.push(`Efectivo ${op.currency}` as Account);
-    }
-
-    for (const acc of affectedAccounts) {
-      const balance = newBalances[acc];
-      await supabase
-        .from('accounts')
-        .update({ balance, updated_at: new Date().toISOString() })
-        .eq('id', acc);
-    }
-
-    // 3. Actualizar stock si fue divisa
-    if (op.currency && newStocks[op.currency]) {
-      const s = newStocks[op.currency];
-      await supabase
-        .from('currency_stocks')
-        .update({
-          amount: s.amount,
-          total_cost_pyg: s.totalCostPYG,
-          average_cost: s.averageCost,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('currency', op.currency);
-    }
-
-    return true;
-  } catch (err) {
-    console.warn('Exception syncing to Supabase:', err);
-    return false;
-  }
-}
-
-/**
- * Elimina una transacción en Supabase y actualiza saldos
- */
-export async function deleteTransactionFromSupabase(
-  opId: string,
-  newBalances: Record<Account, number>,
-  newStocks: Record<Currency, AppState['currencyStocks'][Currency]>,
-  affectedAccounts: Account[],
-  affectedCurrency?: Currency
-): Promise<boolean> {
-  try {
-    const { error } = await supabase.from('transactions').delete().eq('id', opId);
-    if (error) {
-      console.warn('Error deleting tx from Supabase:', error);
-      return false;
-    }
-
-    for (const acc of affectedAccounts) {
-      await supabase
-        .from('accounts')
-        .update({ balance: newBalances[acc], updated_at: new Date().toISOString() })
-        .eq('id', acc);
-    }
-
-    if (affectedCurrency && newStocks[affectedCurrency]) {
-      const s = newStocks[affectedCurrency];
-      await supabase
-        .from('currency_stocks')
-        .update({
-          amount: s.amount,
-          total_cost_pyg: s.totalCostPYG,
-          average_cost: s.averageCost,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('currency', affectedCurrency);
-    }
-
-    return true;
-  } catch (err) {
-    console.warn('Exception deleting tx from Supabase:', err);
-    return false;
   }
 }
 
@@ -268,23 +163,6 @@ export async function saveInitialBalancesToSupabase(
     return true;
   } catch (err) {
     console.warn('Exception saving initial balances to Supabase:', err);
-    return false;
-  }
-}
-
-/**
- * Limpia todas las operaciones de prueba y resetea las cajas
- */
-export async function clearTransactionsInSupabase(): Promise<boolean> {
-  try {
-    const { error } = await supabase.from('transactions').delete().neq('id', 'keep_all');
-    if (error) {
-      console.warn('Error clearing transactions in Supabase:', error);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn('Exception clearing transactions in Supabase:', err);
     return false;
   }
 }

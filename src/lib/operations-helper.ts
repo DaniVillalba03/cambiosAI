@@ -23,6 +23,9 @@ export async function generateDailySummaryMessage(): Promise<string> {
   const buys = todayOps.filter((o: any) => o.type === 'COMPRA').length;
   const sells = todayOps.filter((o: any) => o.type === 'VENTA').length;
   const expensesCount = todayOps.filter((o: any) => o.type === 'GASTO').length;
+  const incomes = todayOps
+    .filter((o: any) => o.type === 'INGRESO')
+    .reduce((sum: number, o: any) => sum + (Number(o.total_pyg) || 0), 0);
 
   // Ganancia Cambiaria pura por spread
   const profit = todayOps.reduce((sum: number, o: any) => sum + (Number(o.profit) || 0), 0);
@@ -40,7 +43,9 @@ export async function generateDailySummaryMessage(): Promise<string> {
   msg += `• Operaciones: ${todayOps.length} (${buys} compras, ${sells} ventas, ${expensesCount} gastos)\n`;
   msg += `• 🟢 *Ganancia Cambiaria:* ${formatPYG(profit)}\n`;
   msg += `• ⛽ Gastos del Día: ${formatPYG(expenses)}\n`;
-  msg += `• 💼 *Flujo Neto Final:* ${formatPYG(netFlow)}\n\n`;
+  msg += `• 💼 *Flujo Neto Final:* ${formatPYG(netFlow)}\n`;
+  if (incomes > 0) msg += `• 📥 Ingresos recibidos: ${formatPYG(incomes)}\n`;
+  msg += `\n`;
 
   msg += `💵 *STOCK DE DIVISAS (Billetes)*\n`;
   if (stocks && stocks.length > 0) {
@@ -90,12 +95,13 @@ export function generateHelpMessage(): string {
   msg += `• _"Compré 2000 reales a 1520 con Itaú"_\n`;
   msg += `• _"500 usd a 7750 itau"_ (modo rápido)\n\n`;
 
-  msg += `⛽ *2. REGISTRAR GASTOS*\n`;
+  msg += `⛽ *2. GASTOS, INGRESOS Y TRANSFERENCIAS*\n`;
   msg += `• _"Gasté 150 mil en combustible con Itaú"_\n`;
-  msg += `• _"Pagué 80 mil almuerzo en efectivo"_\n\n`;
+  msg += `• _"Me depositaron 2 palos en Familiar"_ (plata que entra)\n`;
+  msg += `• _"Pasé 5 palos de Itaú a efectivo"_ (entre tus cuentas)\n\n`;
 
   msg += `📸 *3. FOTOS DE COMPROBANTES*\n`;
-  msg += `• Enviá la foto de una transferencia bancaria (SIPAP, Itaú, Familiar, BNF, Continental) y extraigo automáticamente el monto, banco y concepto.\n\n`;
+  msg += `• Enviá la foto de una transferencia bancaria (SIPAP, Itaú, Familiar, BNF, Continental) y extraigo el monto, banco y concepto. Antes de guardarlo te pregunto si está bien.\n\n`;
 
   msg += `🎙️ *4. NOTAS DE VOZ (AUDIOS)*\n`;
   msg += `• Dictá tu operación en un audio y lo registro al instante.\n\n`;
@@ -223,32 +229,42 @@ export async function runCommand(command: string): Promise<string> {
   }
 }
 
+const accountName = (a: string) => (a === 'Efectivo PYG' ? 'Efectivo' : a);
+
 /** Mensaje de confirmación de una operación registrada (WhatsApp y chat web). */
 export function formatOperationConfirmation(
   op: Operation,
-  opts: { warnings?: string[]; isReceipt?: boolean; transcription?: string } = {}
+  opts: { warnings?: string[]; isReceipt?: boolean; transcription?: string; preview?: boolean } = {}
 ): string {
   const lines: string[] = [];
   if (opts.transcription) lines.push(`🎙️ _"${opts.transcription}"_`, '');
   lines.push(
-    opts.isReceipt
+    opts.preview
+      ? '🧾 *Leí este comprobante:*'
+      : opts.isReceipt
       ? `🧾 *Comprobante #${op.operationNumber} registrado*`
       : `✅ *Operación #${op.operationNumber} guardada*`,
     ''
   );
 
-  if (op.type === 'GASTO') {
-    lines.push(`📋 *Tipo:* ${opts.isReceipt ? 'Transferencia / Pago' : 'Gasto'}`);
+  if (op.type === 'GASTO' || op.type === 'INGRESO') {
+    const label = op.type === 'INGRESO' ? '📥 Ingreso (entró plata)' : opts.isReceipt ? 'Transferencia / Pago' : 'Gasto';
+    lines.push(`📋 *Tipo:* ${label}`);
     lines.push(`💰 *Monto:* ${formatPYG(op.totalPYG)}`);
     if (op.description) lines.push(`📝 *Detalle:* ${op.description}`);
-    lines.push(`🏦 *Cuenta:* ${op.account}`);
+    lines.push(`🏦 *Cuenta:* ${accountName(op.account)}`);
+  } else if (op.type === 'TRANSFERENCIA') {
+    lines.push(`📋 *Tipo:* 🔁 Transferencia entre cuentas`);
+    lines.push(`💰 *Monto:* ${formatPYG(op.totalPYG)}`);
+    lines.push(`🏦 *De:* ${accountName(op.account)} → *A:* ${accountName(op.toAccount || '')}`);
+    if (op.description) lines.push(`📝 *Detalle:* ${op.description}`);
   } else if (op.currency) {
     lines.push(`📋 *Tipo:* ${op.type === 'COMPRA' ? '🔵 Compra' : '🟡 Venta'}`);
     lines.push(`${CURRENCY_FLAGS[op.currency]} *Divisa:* ${CURRENCY_LABELS[op.currency]} (${op.currency})`);
     lines.push(`💵 *Monto:* ${CURRENCY_SYMBOLS[op.currency]} ${formatCurrency(op.amount || 0)}`);
     lines.push(`📊 *Cotización:* Gs. ${formatCurrency(op.rate || 0, op.currency === 'ARS' ? 1 : 0)}`);
     lines.push(`💰 *Total:* ${formatPYG(op.totalPYG)}`);
-    lines.push(`🏦 *Cuenta:* ${op.account}`);
+    lines.push(`🏦 *Cuenta:* ${accountName(op.account)}`);
     if (op.profit !== undefined) {
       lines.push('', `${op.profit >= 0 ? '🟢' : '🔴'} *Ganancia:* ${op.profit >= 0 ? '+' : ''}${formatPYG(op.profit)}`);
     }
@@ -257,6 +273,9 @@ export function formatOperationConfirmation(
   if (opts.warnings && opts.warnings.length > 0) {
     lines.push('', ...opts.warnings.map((w) => `⚠️ ${w}`));
   }
-  lines.push('', '_Escribí *anular* si te equivocaste._');
+  lines.push(
+    '',
+    opts.preview ? '¿Lo guardo? Tocá un botón (o respondé *sí* / *no*).' : '_Escribí *anular* si te equivocaste._'
+  );
   return lines.join('\n');
 }

@@ -4,7 +4,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { parseOperationWithAIOrFallback } from '@/lib/agent-service';
 import { detectCommand } from '@/lib/local-parser';
 import { runCommand, formatOperationConfirmation } from '@/lib/operations-helper';
-import { recordOperation, validateParsedOperation } from '@/lib/operations-server';
+import {
+  recordOperation,
+  validateParsedOperation,
+  type ValidatedOperation,
+  type OperationMeta,
+} from '@/lib/operations-server';
 
 // Forzar que la ruta sea dinámica (nunca cacheada/prerendered)
 export const dynamic = 'force-dynamic';
@@ -22,6 +27,10 @@ interface ExtractedMessage {
   messageId: string;
   mediaId?: string;
   mimeType?: string;
+  /** Nombre del perfil de WhatsApp de quien escribe (para saber quién anotó) */
+  profileName?: string;
+  /** id del botón tocado (respuestas a "Guardar / Cancelar") */
+  buttonId?: string;
 }
 
 /**
@@ -54,6 +63,9 @@ function extractWhatsAppMessage(body: any): ExtractedMessage | null {
         let text = '';
         let mediaId = '';
         let mimeType = '';
+        const contact = (value.contacts || []).find((c: any) => c?.wa_id === from) || value.contacts?.[0];
+        const profileName: string | undefined = contact?.profile?.name || undefined;
+        const buttonId: string | undefined = msg.interactive?.button_reply?.id || undefined;
 
         if (typeof msg.text === 'string') {
           text = msg.text;
@@ -88,6 +100,8 @@ function extractWhatsAppMessage(body: any): ExtractedMessage | null {
           messageId: msg.id || '',
           mediaId: mediaId || undefined,
           mimeType: mimeType || undefined,
+          profileName,
+          buttonId,
         };
       }
     }
@@ -167,16 +181,39 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string;
   }
 }
 
-/**
- * Envía un mensaje de texto a través de Meta WhatsApp Cloud API
- */
-async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: string) {
+/** Envía un mensaje de texto por WhatsApp. */
+function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: string) {
+  return sendWhatsAppPayload(to, { type: 'text', text: { preview_url: false, body: text } }, phoneNumberId);
+}
+
+/** Envía un mensaje con botones de respuesta rápida (máx. 3 botones, 20 caracteres cada uno). */
+function sendWhatsAppButtons(
+  to: string,
+  text: string,
+  buttons: { id: string; title: string }[],
+  phoneNumberId?: string
+) {
+  return sendWhatsAppPayload(
+    to,
+    {
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: text.slice(0, 1024) },
+        action: { buttons: buttons.map((b) => ({ type: 'reply', reply: { id: b.id, title: b.title.slice(0, 20) } })) },
+      },
+    },
+    phoneNumberId
+  );
+}
+
+async function sendWhatsAppPayload(to: string, message: Record<string, unknown>, phoneNumberId?: string) {
   const token = process.env.WHATSAPP_ACCESS_TOKEN;
   const isDummyId = !phoneNumberId || phoneNumberId === '123456123' || phoneNumberId.length < 10;
   const targetPhoneId = isDummyId ? process.env.WHATSAPP_PHONE_NUMBER_ID : phoneNumberId;
 
   if (!token || !targetPhoneId) {
-    console.warn(`[WhatsApp] Falta WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID. Mensaje para ${to}:\n${text}`);
+    console.warn(`[WhatsApp] Falta WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID. Mensaje para ${to}:`, message);
     return { success: false, reason: 'missing_credentials' };
   }
 
@@ -189,8 +226,7 @@ async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: str
         messaging_product: 'whatsapp',
         recipient_type: 'individual',
         to: cleanTo,
-        type: 'text',
-        text: { preview_url: false, body: text },
+        ...message,
       }),
     });
     const resJson = await res.json().catch(() => null);
@@ -268,6 +304,60 @@ async function markAsReadWithTyping(messageId: string, phoneNumberId: string) {
   }
 }
 
+// ─── Comprobantes pendientes de confirmación ("Guardar / Cancelar") ───
+
+const PENDING_TTL_MS = 60 * 60 * 1000; // 1 hora para confirmar
+const YES_RE = /^(si|s|ok|dale|guardar|guardalo|guarda|confirmo|confirmar|correcto|esta bien)$/;
+const NO_RE = /^(no|n|cancelar|cancela|descartar|borralo|esta mal)$/;
+
+interface PendingPayload {
+  op: ValidatedOperation;
+  meta: OperationMeta;
+  transcription?: string;
+}
+
+const normalizeReply = (t: string) =>
+  t
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z ]/g, '')
+    .trim();
+
+/** Guarda el comprobante leído hasta que la persona confirme. Un solo pendiente por persona. */
+async function savePending(sender: string, payload: PendingPayload): Promise<string> {
+  const id = `p_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await supabaseAdmin.from('pending_operations').delete().eq('sender', sender);
+  const { error } = await supabaseAdmin.from('pending_operations').insert({ id, sender, payload });
+  if (error) throw new Error(`No se pudo guardar el pendiente: ${error.message}`);
+  return id;
+}
+
+async function hasPending(sender: string): Promise<boolean> {
+  const since = new Date(Date.now() - PENDING_TTL_MS).toISOString();
+  const { count } = await supabaseAdmin
+    .from('pending_operations')
+    .select('id', { count: 'exact', head: true })
+    .eq('sender', sender)
+    .gte('created_at', since);
+  return (count || 0) > 0;
+}
+
+/**
+ * Toma (y borra) el pendiente. Borrar y leer en un solo paso evita que un doble toque
+ * en "Guardar" registre la operación dos veces.
+ */
+async function takePending(sender: string, id?: string): Promise<PendingPayload | 'expired' | null> {
+  let q = supabaseAdmin.from('pending_operations').delete().eq('sender', sender);
+  if (id) q = q.eq('id', id);
+  const { data } = await q.select();
+  const rows = (data || []).sort((a: any, b: any) => (a.created_at < b.created_at ? 1 : -1));
+  const row = rows[0];
+  if (!row) return null;
+  if (Date.now() - new Date(row.created_at).getTime() > PENDING_TTL_MS) return 'expired';
+  return row.payload as PendingPayload;
+}
+
 // 1. GET: Verificación del Webhook de Meta
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
@@ -310,7 +400,8 @@ export async function POST(request: NextRequest) {
   // Notificaciones de estado (sent, delivered, read) no traen mensajes
   if (!incoming) return NextResponse.json({ status: 'acknowledged' }, { status: 200 });
 
-  const { from, type: msgType, text, phoneNumberId, messageId, mediaId } = incoming;
+  const { from, type: msgType, text, phoneNumberId, messageId, mediaId, profileName, buttonId } = incoming;
+  const meta: OperationMeta = { registeredBy: profileName || `+${from}`, source: 'whatsapp' };
   console.log(`📱 [WEBHOOK] Mensaje de ${from} (tipo: ${msgType}, id: ${messageId})`);
 
   if (!isAllowedSender(from)) {
@@ -327,6 +418,31 @@ export async function POST(request: NextRequest) {
         return;
       }
       await markAsReadWithTyping(messageId, phoneNumberId);
+
+      // ─── Respuesta a "¿Lo guardo?" de un comprobante (botón o "sí"/"no" escrito) ───
+      let decision: { confirm: boolean; id?: string } | null = null;
+      if (buttonId?.startsWith('ok:') || buttonId?.startsWith('no:')) {
+        decision = { confirm: buttonId.startsWith('ok:'), id: buttonId.slice(3) };
+      } else if (text && !mediaId) {
+        const norm = normalizeReply(text);
+        if ((YES_RE.test(norm) || NO_RE.test(norm)) && (await hasPending(from))) {
+          decision = { confirm: YES_RE.test(norm) };
+        }
+      }
+      if (decision) {
+        const pending = await takePending(from, decision.id);
+        if (pending === null) {
+          await reply('Ese comprobante ya fue procesado. Si querés, mandá la foto de nuevo.');
+        } else if (pending === 'expired') {
+          await reply('⌛ Pasó más de una hora y ese comprobante venció. Mandá la foto de nuevo.');
+        } else if (!decision.confirm) {
+          await reply('❌ Listo, no guardé nada.');
+        } else {
+          const { operation, warnings } = await recordOperation(pending.op, pending.meta);
+          await reply(formatOperationConfirmation(operation, { warnings, isReceipt: true }));
+        }
+        return;
+      }
 
       const isAudio = msgType === 'audio' || msgType === 'voice';
       const isImage = msgType === 'image' || msgType === 'document';
@@ -384,7 +500,26 @@ export async function POST(request: NextRequest) {
         return;
       }
 
-      const { operation, warnings } = await recordOperation(validation.op);
+      // Comprobantes: primero mostrar lo que se leyó y pedir confirmación
+      if (isImage) {
+        const preview = formatOperationConfirmation(
+          { ...validation.op, id: '', operationNumber: 0, timestamp: new Date().toISOString() },
+          { preview: true }
+        );
+        const pendingId = await savePending(from, { op: validation.op, meta });
+        await sendWhatsAppButtons(
+          from,
+          preview,
+          [
+            { id: `ok:${pendingId}`, title: '✅ Guardar' },
+            { id: `no:${pendingId}`, title: '❌ Cancelar' },
+          ],
+          phoneNumberId
+        );
+        return;
+      }
+
+      const { operation, warnings } = await recordOperation(validation.op, meta);
       console.log(`💾 [AFTER] Operación #${operation.operationNumber} guardada (${parseResult.source})`);
 
       await reply(

@@ -23,6 +23,8 @@ export function ArqueoPanel() {
   const expenses = ops.filter((o) => o.type === 'GASTO');
   const expensesTotal = expenses.reduce((s, o) => s + o.totalPYG, 0);
   const net = profit - expensesTotal;
+  // Los ingresos (cobros, depósitos) no son ganancia cambiaria: se muestran aparte
+  const incomes = ops.filter((o) => o.type === 'INGRESO').reduce((s, o) => s + o.totalPYG, 0);
   const buys = ops.filter((o) => o.type === 'COMPRA').length;
   const sells = ops.filter((o) => o.type === 'VENTA').length;
 
@@ -36,6 +38,7 @@ export function ArqueoPanel() {
       `Operaciones: ${ops.length} (${buys} compras, ${sells} ventas, ${expenses.length} gastos)`,
       `Ganancia: ${signed(profit)}`,
       `Gastos: ${formatPYG(expensesTotal)}`,
+      ...(incomes > 0 ? [`Entró aparte (cobros): ${formatPYG(incomes)}`] : []),
       `*Queda: ${signed(net)}*`,
       '',
       '*Guaraníes*',
@@ -97,6 +100,12 @@ export function ArqueoPanel() {
               <dt className="text-ink-2">Gastos</dt>
               <dd className="money font-semibold text-ink">−{formatPYG(expensesTotal)}</dd>
             </div>
+            {incomes > 0 && (
+              <div className="flex justify-between gap-4">
+                <dt className="text-ink-2">Entró aparte (cobros)</dt>
+                <dd className="money font-semibold text-ink">+{formatPYG(incomes)}</dd>
+              </div>
+            )}
             <div className="flex justify-between gap-4">
               <dt className="text-ink-2">Operaciones</dt>
               <dd className="text-ink tabular">

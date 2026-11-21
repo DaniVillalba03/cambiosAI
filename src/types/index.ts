@@ -1,7 +1,7 @@
 // ─── Core Types for CambiosAI ───
 
 export type Currency = 'USD' | 'BRL' | 'ARS' | 'EUR';
-export type OperationType = 'COMPRA' | 'VENTA' | 'GASTO';
+export type OperationType = 'COMPRA' | 'VENTA' | 'GASTO' | 'INGRESO' | 'TRANSFERENCIA';
 
 export type Account =
   | 'Efectivo PYG'
@@ -26,7 +26,10 @@ export interface Operation {
   amount?: number; // Amount in foreign currency
   rate?: number; // Exchange rate (PYG per 1 unit of foreign currency)
   totalPYG: number; // Total in Guaraníes
-  account: Account; // PYG account used (bank or cash)
+  account: Account; // PYG account used (bank or cash). En TRANSFERENCIA: cuenta de origen
+  toAccount?: Account; // Solo TRANSFERENCIA: cuenta de destino
+  registeredBy?: string; // Quién lo anotó (nombre de WhatsApp o "Web")
+  source?: 'whatsapp' | 'web';
   description?: string;
   profit?: number; // Calculated profit for VENTA operations
   operationNumber: number;
@@ -76,6 +79,7 @@ export interface AgentResponse {
   rate?: number;
   totalPYG?: number;
   account?: Account;
+  toAccount?: Account;
   description?: string;
   isCommand?: boolean;
   command?: string;
