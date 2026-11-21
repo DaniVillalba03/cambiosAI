@@ -44,8 +44,10 @@ function SyncStatus({ compact = false }: { compact?: boolean }) {
   const { supabaseStatus, realtimeStatus } = useAppState();
   const live = supabaseStatus.connected && realtimeStatus === 'SUBSCRIBED';
   const connected = supabaseStatus.connected;
-  const label = live ? 'En vivo' : connected ? 'Conectado' : 'Sin conexión';
-  const color = live ? 'bg-accent' : connected ? 'bg-sell' : 'bg-loss';
+  // Sin mensaje de error todavía = primera carga en curso
+  const failed = !connected && !!supabaseStatus.message;
+  const label = live ? 'En vivo' : connected ? 'Conectado' : failed ? 'Sin conexión' : 'Conectando…';
+  const color = live ? 'bg-accent' : connected ? 'bg-sell' : failed ? 'bg-loss' : 'bg-gray-500';
 
   return (
     <span className="inline-flex items-center gap-2 text-xs text-gray-300">
