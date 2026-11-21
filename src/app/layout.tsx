@@ -1,37 +1,32 @@
 import type { Metadata, Viewport } from 'next';
-import { Inter } from 'next/font/google';
+import { Inter, Source_Serif_4 } from 'next/font/google';
 import './globals.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+const serif = Source_Serif_4({ subsets: ['latin'], variable: '--font-serif', weight: ['500', '600'] });
 
 export const metadata: Metadata = {
   title: 'MiCambio · Caja y divisas',
-  description:
-    'Aplicación inteligente para operadores cambiarios en Paraguay. Registra compras, ventas y gastos por chat con IA.',
+  description: 'Control de caja, bancos y divisas para el cambista. Registro por WhatsApp o desde la web.',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
     title: 'MiCambio',
   },
 };
 
+// Se permite hacer zoom: importante para leer cómodo en el celular
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: '#0b0c0e',
+  themeColor: '#f6f4ef',
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className="dark">
-      <body className={`${inter.variable} font-sans`}>{children}</body>
+    <html lang="es">
+      <body className={`${inter.variable} ${serif.variable} font-sans`}>{children}</body>
     </html>
   );
 }

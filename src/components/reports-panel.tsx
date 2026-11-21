@@ -1,249 +1,136 @@
 'use client';
 
 import { useMemo } from 'react';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  LineChart,
-  Line,
-  Area,
-  AreaChart,
-} from 'recharts';
-import { BarChart3, PieChart as PieIcon, TrendingUp } from 'lucide-react';
 import { useAppState } from '@/store/app-context';
-import { CURRENCIES, CURRENCY_LABELS, Currency } from '@/types';
-import { formatPYG, formatCurrency, isToday } from '@/lib/utils';
-
-const CHART_COLORS = {
-  buy: '#60a5fa',
-  sell: '#fbbf24',
-  USD: '#22d3ee',
-  BRL: '#34d399',
-  ARS: '#f97316',
-  EUR: '#a78bfa',
-  profit: '#34d399',
-  expense: '#f87171',
-};
-
-const PIE_COLORS = ['#22d3ee', '#34d399', '#f97316', '#a78bfa', '#60a5fa', '#fbbf24'];
-
-// Custom tooltip component
-function CustomTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-surface-1 border border-border rounded-xl px-3 py-2 shadow-xl">
-      <p className="text-xs text-gray-400 mb-1">{label}</p>
-      {payload.map((entry, i) => (
-        <p key={i} className="text-sm font-semibold" style={{ color: entry.color }}>
-          {entry.name}: {formatPYG(entry.value)}
-        </p>
-      ))}
-    </div>
-  );
-}
+import { CURRENCIES, CURRENCY_SYMBOLS } from '@/types';
+import { formatPYG, formatCurrency, toLocalISODate, getPreviousDay, isSameDay, cn } from '@/lib/utils';
+import { SectionHeader } from './ui';
+import { CURRENCY_PLURAL, signed } from './dashboard';
 
 export function ReportsPanel() {
-  const { todayOperations } = useAppState();
+  const { state } = useAppState();
 
-  // ─── Bar chart: Compras vs Ventas por moneda ───
-  const barData = useMemo(() => {
-    return CURRENCIES.map((cur) => {
-      const buys = todayOperations
-        .filter((op) => op.type === 'COMPRA' && op.currency === cur)
-        .reduce((sum, op) => sum + op.totalPYG, 0);
-      const sells = todayOperations
-        .filter((op) => op.type === 'VENTA' && op.currency === cur)
-        .reduce((sum, op) => sum + op.totalPYG, 0);
-      return {
-        name: CURRENCY_LABELS[cur],
-        Compras: buys,
-        Ventas: sells,
-      };
-    }).filter((d) => d.Compras > 0 || d.Ventas > 0);
-  }, [todayOperations]);
+  // Últimos 7 días: ganancia menos gastos de cada día
+  const week = useMemo(() => {
+    const days: string[] = [];
+    let d = toLocalISODate(new Date());
+    for (let i = 0; i < 7; i++) {
+      days.unshift(d);
+      d = getPreviousDay(d);
+    }
+    return days.map((day) => {
+      const ops = state.operations.filter((op) => isSameDay(op.timestamp, day));
+      const profit = ops.reduce((s, o) => s + (o.profit || 0), 0);
+      const expenses = ops.filter((o) => o.type === 'GASTO').reduce((s, o) => s + o.totalPYG, 0);
+      const [y, m, dd] = day.split('-').map(Number);
+      const label = new Date(y, m - 1, dd).toLocaleDateString('es-PY', { weekday: 'short' }).replace('.', '');
+      const long = new Date(y, m - 1, dd).toLocaleDateString('es-PY', { weekday: 'long', day: 'numeric', month: 'long' });
+      return { day, label: label.charAt(0).toUpperCase() + label.slice(1), long, net: profit - expenses, ops: ops.length };
+    });
+  }, [state.operations]);
 
-  // ─── Pie chart: Volumen operado por divisa ───
-  const pieData = useMemo(() => {
-    return CURRENCIES.map((cur) => {
-      const volume = todayOperations
-        .filter((op) => op.currency === cur && op.type !== 'GASTO')
-        .reduce((sum, op) => sum + op.totalPYG, 0);
-      return {
-        name: CURRENCY_LABELS[cur],
-        value: volume,
-        currency: cur,
-      };
-    }).filter((d) => d.value > 0);
-  }, [todayOperations]);
+  const weekTotal = week.reduce((s, d) => s + d.net, 0);
+  const weekOps = week.reduce((s, d) => s + d.ops, 0);
+  const maxAbs = Math.max(...week.map((d) => Math.abs(d.net)));
+  const best = week.reduce((a, b) => (b.net > a.net ? b : a), week[0]);
 
-  // ─── Line chart: Evolución ganancia acumulada ───
-  const profitEvolution = useMemo(() => {
-    let cumProfit = 0;
-    return todayOperations
-      .filter((op) => op.type === 'VENTA')
-      .map((op, i) => {
-        cumProfit += op.profit || 0;
-        return {
-          name: `Op ${op.operationNumber}`,
-          ganancia: cumProfit,
-          opProfit: op.profit || 0,
-        };
-      });
-  }, [todayOperations]);
-
-  const hasData = todayOperations.length > 0;
+  // Qué se movió en la semana por moneda
+  const byCurrency = useMemo(() => {
+    const from = week[0].day;
+    const ops = state.operations.filter((op) => toLocalISODate(new Date(op.timestamp)) >= from);
+    return CURRENCIES.map((c) => {
+      const bought = ops.filter((o) => o.type === 'COMPRA' && o.currency === c).reduce((s, o) => s + (o.amount || 0), 0);
+      const sold = ops.filter((o) => o.type === 'VENTA' && o.currency === c).reduce((s, o) => s + (o.amount || 0), 0);
+      const profit = ops.filter((o) => o.currency === c).reduce((s, o) => s + (o.profit || 0), 0);
+      return { c, bought, sold, profit };
+    }).filter((r) => r.bought > 0 || r.sold > 0);
+  }, [state.operations, week]);
 
   return (
-    <div className="h-full overflow-y-auto p-4 lg:p-6 space-y-6">
-      <div className="flex items-center gap-2 mb-2">
-        <BarChart3 className="w-5 h-5 text-accent" />
-        <h2 className="text-lg font-bold text-white">Reportes del Día</h2>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 lg:py-10 space-y-8">
+        <header className="px-1">
+          <h1 className="font-serif text-3xl font-semibold text-ink">Informes</h1>
+          <p className="text-ink-3 mt-1">Los últimos 7 días.</p>
+        </header>
+
+        <section className="card p-5 sm:p-7">
+          <p className="text-ink-2">Quedó en la semana</p>
+          <p className={cn('money text-[40px] sm:text-5xl font-semibold leading-tight mt-1', weekTotal < 0 ? 'text-neg' : 'text-pos')}>
+            {signed(weekTotal)}
+          </p>
+          <p className="text-[15px] text-ink-3 mt-1">
+            {weekOps} operaciones
+            {best && best.net > 0 && (
+              <>
+                {' · '}el mejor día fue el {best.long}
+              </>
+            )}
+          </p>
+
+        </section>
+
+        <section>
+          <SectionHeader title="Día por día" />
+          <div className="card divide-y divide-line">
+            {[...week].reverse().map((d) => {
+              const pct = maxAbs > 0 ? Math.max(4, Math.round((Math.abs(d.net) / maxAbs) * 100)) : 0;
+              return (
+                <div key={d.day} className="px-5 py-3.5">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="text-base text-ink first-letter:uppercase">{d.long}</span>
+                    {d.ops === 0 ? (
+                      <span className="text-[15px] text-ink-3 whitespace-nowrap">Sin movimiento</span>
+                    ) : (
+                      <span
+                        className={cn(
+                          'money text-lg font-semibold whitespace-nowrap',
+                          d.net < 0 ? 'text-neg' : d.net > 0 ? 'text-pos' : 'text-ink'
+                        )}
+                      >
+                        {signed(d.net)}
+                      </span>
+                    )}
+                  </div>
+                  {d.net !== 0 && (
+                    <div className="mt-2 h-2 rounded-full bg-fill overflow-hidden">
+                      <div className={cn('h-full rounded-full', d.net < 0 ? 'bg-neg' : 'bg-pos')} style={{ width: `${pct}%` }} />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-sm text-ink-3 mt-2 px-1">Ganancia por cambios menos gastos de cada día.</p>
+        </section>
+
+        <section className="pb-6">
+          <SectionHeader title="Por moneda" />
+          {byCurrency.length === 0 ? (
+            <div className="card px-6 py-10 text-center text-base text-ink-2">No hubo compras ni ventas esta semana.</div>
+          ) : (
+            <div className="card divide-y divide-line">
+              {byCurrency.map((r) => {
+                const dec = r.c === 'ARS' ? 0 : 2;
+                const sym = CURRENCY_SYMBOLS[r.c];
+                return (
+                  <div key={r.c} className="px-5 py-4">
+                    <div className="flex justify-between gap-4">
+                      <span className="text-base font-semibold text-ink">{CURRENCY_PLURAL[r.c]}</span>
+                      <span className={cn('money text-base font-semibold', r.profit < 0 ? 'text-neg' : 'text-pos')}>
+                        ganó {signed(r.profit)}
+                      </span>
+                    </div>
+                    <p className="text-[15px] text-ink-2 mt-1 tabular">
+                      Compró {sym} {formatCurrency(r.bought, dec)} · Vendió {sym} {formatCurrency(r.sold, dec)}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       </div>
-
-      {!hasData ? (
-        <div className="glass p-12 text-center">
-          <BarChart3 className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-          <p className="text-gray-500">Los gráficos se actualizan con cada operación.</p>
-        </div>
-      ) : (
-        <>
-          {/* ─── Compras vs Ventas por Moneda ─── */}
-          <div className="glass p-5">
-            <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-accent" />
-              Compras vs Ventas por Moneda (Gs.)
-            </h3>
-            <div className="h-64 lg:h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} barGap={4}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#2d3b50" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fill: '#9ca3af', fontSize: 12 }} axisLine={false} />
-                  <YAxis
-                    tick={{ fill: '#9ca3af', fontSize: 11 }}
-                    axisLine={false}
-                    tickFormatter={(v) => `${(v / 1_000_000).toFixed(1)}M`}
-                  />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Legend
-                    wrapperStyle={{ fontSize: '12px', color: '#d1d5db' }}
-                  />
-                  <Bar dataKey="Compras" fill={CHART_COLORS.buy} radius={[6, 6, 0, 0]} />
-                  <Bar dataKey="Ventas" fill={CHART_COLORS.sell} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* ─── Distribución de Volumen ─── */}
-            <div className="glass p-5">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <PieIcon className="w-4 h-4 text-accent" />
-                Distribución de Volumen
-              </h3>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={55}
-                      outerRadius={85}
-                      paddingAngle={4}
-                      dataKey="value"
-                      label={({ name, percent }: { name?: string; percent?: number }) =>
-                        `${name || ''} ${((percent ?? 0) * 100).toFixed(0)}%`
-                      }
-                      labelLine={false}
-                    >
-                      {pieData.map((_, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          stroke="transparent"
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value: any) => formatPYG(Number(value) || 0)}
-                      contentStyle={{
-                        backgroundColor: '#111827',
-                        border: '1px solid #2d3b50',
-                        borderRadius: '12px',
-                        fontSize: '12px',
-                        color: '#fff',
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* ─── Evolución de Ganancia ─── */}
-            <div className="glass p-5">
-              <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-profit" />
-                Evolución de Ganancia
-              </h3>
-              {profitEvolution.length > 0 ? (
-                <div className="h-56">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={profitEvolution}>
-                      <defs>
-                        <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={CHART_COLORS.profit} stopOpacity={0.3} />
-                          <stop offset="100%" stopColor={CHART_COLORS.profit} stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#2d3b50" vertical={false} />
-                      <XAxis
-                        dataKey="name"
-                        tick={{ fill: '#9ca3af', fontSize: 11 }}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        tick={{ fill: '#9ca3af', fontSize: 11 }}
-                        axisLine={false}
-                        tickFormatter={(v) =>
-                          v >= 1_000_000
-                            ? `${(v / 1_000_000).toFixed(1)}M`
-                            : `${(v / 1_000).toFixed(0)}k`
-                        }
-                      />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="ganancia"
-                        name="Ganancia Acum."
-                        stroke={CHART_COLORS.profit}
-                        fill="url(#profitGrad)"
-                        strokeWidth={2.5}
-                        dot={{ r: 4, fill: CHART_COLORS.profit, stroke: '#111827', strokeWidth: 2 }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="h-56 flex items-center justify-center">
-                  <p className="text-gray-600 text-sm">
-                    Las ganancias se muestran con cada venta.
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </>
-      )}
     </div>
   );
 }

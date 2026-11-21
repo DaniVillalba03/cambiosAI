@@ -1,300 +1,167 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import {
-  ClipboardCheck,
-  Copy,
-  CheckCircle2,
-  Banknote,
-  Landmark,
-  DollarSign,
-  TrendingUp,
-  Receipt,
-  Hash,
-} from 'lucide-react';
+import { Copy, Check } from 'lucide-react';
 import { useAppState } from '@/store/app-context';
-import {
-  CURRENCIES,
-  CURRENCY_FLAGS,
-  CURRENCY_LABELS,
-  CURRENCY_SYMBOLS,
-  BANK_ACCOUNTS,
-  BANK_COLORS,
-} from '@/types';
-import {
-  formatPYG,
-  formatCurrency,
-  cn,
-  toLocalISODate,
-  isSameDay,
-  formatDisplayDate,
-} from '@/lib/utils';
+import { CURRENCIES, CURRENCY_SYMBOLS, BANK_ACCOUNTS, Account } from '@/types';
+import { formatPYG, formatCurrency, cn, toLocalISODate, isSameDay, formatDisplayDate } from '@/lib/utils';
 import { BankLogo } from '@/components/bank-logo';
 import { DateSelector } from '@/components/date-selector';
+import { SectionHeader } from './ui';
+import { CURRENCY_PLURAL, signed } from './dashboard';
 
 export function ArqueoPanel() {
   const { state } = useAppState();
-  const [selectedDate, setSelectedDate] = useState<string>(() => toLocalISODate(new Date()));
+  const [selectedDate, setSelectedDate] = useState(() => toLocalISODate(new Date()));
   const [copied, setCopied] = useState(false);
 
-  // Operaciones de la fecha seleccionada
-  const dateOperations = useMemo(() => {
-    return state.operations.filter((op) => isSameDay(op.timestamp, selectedDate));
-  }, [state.operations, selectedDate]);
+  const ops = useMemo(
+    () => state.operations.filter((op) => isSameDay(op.timestamp, selectedDate)),
+    [state.operations, selectedDate]
+  );
+  const profit = ops.reduce((s, o) => s + (o.profit || 0), 0);
+  const expenses = ops.filter((o) => o.type === 'GASTO');
+  const expensesTotal = expenses.reduce((s, o) => s + o.totalPYG, 0);
+  const net = profit - expensesTotal;
+  const buys = ops.filter((o) => o.type === 'COMPRA').length;
+  const sells = ops.filter((o) => o.type === 'VENTA').length;
 
-  const dateProfit = useMemo(() => {
-    return dateOperations.reduce((sum, o) => sum + (o.profit || 0), 0);
-  }, [dateOperations]);
+  const accounts: Account[] = ['Efectivo PYG', ...BANK_ACCOUNTS];
+  const name = (a: Account) => (a === 'Efectivo PYG' ? 'Efectivo' : a);
 
-  const dateExpenses = useMemo(() => {
-    return dateOperations
-      .filter((o) => o.type === 'GASTO')
-      .reduce((sum, o) => sum + o.totalPYG, 0);
-  }, [dateOperations]);
-
-  const summary = useMemo(() => {
-    const dateStr = formatDisplayDate(selectedDate);
-
-    const totalOps = dateOperations.length;
-    const buys = dateOperations.filter((o) => o.type === 'COMPRA').length;
-    const sells = dateOperations.filter((o) => o.type === 'VENTA').length;
-    const expenses = dateOperations.filter((o) => o.type === 'GASTO').length;
-    const netFlow = dateProfit - dateExpenses;
-
-    let whatsappMsg = `📊 *CIERRE DE CAJA - MiCambio*\n`;
-    whatsappMsg += `📅 ${dateStr}\n`;
-    whatsappMsg += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-    whatsappMsg += `📈 *RESUMEN DEL DÍA*\n`;
-    whatsappMsg += `• Operaciones: ${totalOps} (${buys} compras, ${sells} ventas, ${expenses} gastos)\n`;
-    whatsappMsg += `• 🟢 *Ganancia Cambiaria:* ${formatPYG(dateProfit)}\n`;
-    whatsappMsg += `• ⛽ Gastos del Día: ${formatPYG(dateExpenses)}\n`;
-    whatsappMsg += `• 💼 *Flujo Neto Final:* ${formatPYG(netFlow)}\n\n`;
-
-    whatsappMsg += `💵 *BILLETES EN CAJA (DIVISAS)*\n`;
-    for (const cur of CURRENCIES) {
-      const stock = state.currencyStocks[cur];
-      if (stock.amount > 0) {
-        whatsappMsg += `${CURRENCY_FLAGS[cur]} ${cur}: ${CURRENCY_SYMBOLS[cur]} ${formatCurrency(stock.amount, cur === 'ARS' ? 0 : 2)}`;
-        whatsappMsg += ` (Costo prom: Gs. ${formatCurrency(stock.averageCost, 0)})\n`;
-      }
+  const message = useMemo(() => {
+    const lines = [
+      `*Cierre de caja — ${formatDisplayDate(selectedDate)}*`,
+      '',
+      `Operaciones: ${ops.length} (${buys} compras, ${sells} ventas, ${expenses.length} gastos)`,
+      `Ganancia: ${signed(profit)}`,
+      `Gastos: ${formatPYG(expensesTotal)}`,
+      `*Queda: ${signed(net)}*`,
+      '',
+      '*Guaraníes*',
+      ...accounts.map((a) => `${name(a)}: ${formatPYG(state.accountBalances[a] || 0)}`),
+    ];
+    const withStock = CURRENCIES.filter((c) => state.currencyStocks[c].amount > 0);
+    if (withStock.length) {
+      lines.push('', '*Billetes*');
+      withStock.forEach((c) => {
+        const s = state.currencyStocks[c];
+        lines.push(
+          `${CURRENCY_PLURAL[c]}: ${CURRENCY_SYMBOLS[c]} ${formatCurrency(s.amount, c === 'ARS' ? 0 : 2)} (costo Gs. ${formatCurrency(s.averageCost, 0)})`
+        );
+      });
     }
+    return lines.join('\n');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, ops, selectedDate]);
 
-    whatsappMsg += `\n🏦 *SALDOS EN GUARANÍES*\n`;
-    whatsappMsg += `💰 Efectivo: ${formatPYG(state.accountBalances['Efectivo PYG'])}\n`;
-    for (const bank of BANK_ACCOUNTS) {
-      whatsappMsg += `🏛️ ${bank}: ${formatPYG(state.accountBalances[bank])}\n`;
-    }
-
-    whatsappMsg += `\n━━━━━━━━━━━━━━━━━━━━━\n`;
-    whatsappMsg += `✅ Generado por MiCambio`;
-
-    return {
-      dateStr,
-      totalOps,
-      buys,
-      sells,
-      expenses,
-      currencyProfit: dateProfit,
-      expensesTotal: dateExpenses,
-      netFlow,
-      whatsappMsg,
-    };
-  }, [state, dateOperations, dateProfit, dateExpenses, selectedDate]);
-
-  const handleCopy = async () => {
+  const copy = async () => {
     try {
-      await navigator.clipboard.writeText(summary.whatsappMsg);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      await navigator.clipboard.writeText(message);
     } catch {
-      const textarea = document.createElement('textarea');
-      textarea.value = summary.whatsappMsg;
-      document.body.appendChild(textarea);
-      textarea.select();
+      const ta = document.createElement('textarea');
+      ta.value = message;
+      document.body.appendChild(ta);
+      ta.select();
       document.execCommand('copy');
-      document.body.removeChild(textarea);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      ta.remove();
     }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
   };
 
   return (
-    <div className="h-full overflow-y-auto p-4 lg:p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <ClipboardCheck className="w-5 h-5 text-accent" />
-          <h2 className="text-lg font-bold text-white">Cierre de Caja (Arqueo)</h2>
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6 lg:py-10 space-y-8">
+        <header className="px-1">
+          <h1 className="font-serif text-3xl font-semibold text-ink">Cierre del día</h1>
+          <p className="text-ink-3 mt-1">Cómo terminó el día y cuánto hay en cada lugar.</p>
+        </header>
+
+        <div className="card px-2 sm:px-3 py-2">
+          <DateSelector selectedDate={selectedDate} onSelectDate={setSelectedDate} />
         </div>
-        <span className="text-xs text-gray-400 bg-surface-2 px-3 py-1.5 rounded-full border border-border">
-          {summary.dateStr}
-        </span>
-      </div>
 
-      {/* ─── Selector de Fecha ─── */}
-      <DateSelector
-        selectedDate={selectedDate}
-        onSelectDate={setSelectedDate}
-      />
-
-
-      {/* ─── Resumen del Día ─── */}
-      <div className="glass glow-accent p-5">
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <TrendingUp className="w-4 h-4 text-accent" />
-          Resumen Financiero del Día
-        </h3>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="text-center p-3 bg-surface-2/40 rounded-xl">
-            <Hash className="w-5 h-5 text-gray-400 mx-auto mb-1" />
-            <p className="text-2xl font-bold text-white">{summary.totalOps}</p>
-            <p className="text-xs text-gray-500">Operaciones ({summary.buys} C / {summary.sells} V)</p>
-          </div>
-          <div className="text-center p-3 bg-surface-2/40 rounded-xl border border-profit/20">
-            <TrendingUp className="w-5 h-5 text-profit mx-auto mb-1" />
-            <p className="text-xl font-semibold text-profit">+{formatPYG(summary.currencyProfit)}</p>
-            <p className="text-xs text-profit font-semibold">Ganancia Cambiaria</p>
-          </div>
-          <div className="text-center p-3 bg-surface-2/40 rounded-xl border border-expense/20">
-            <Receipt className="w-5 h-5 text-expense mx-auto mb-1" />
-            <p className="text-xl font-bold text-expense">{formatPYG(summary.expensesTotal)}</p>
-            <p className="text-xs text-expense font-semibold">Gastos del Día</p>
-          </div>
-          <div className="text-center p-3 bg-surface-2/40 rounded-xl border border-border">
-            <DollarSign className="w-5 h-5 text-accent mx-auto mb-1" />
-            <p className={cn('text-xl font-bold', summary.netFlow >= 0 ? 'text-profit' : 'text-loss')}>
-              {summary.netFlow >= 0 ? '+' : ''}{formatPYG(summary.netFlow)}
-            </p>
-            <p className="text-xs text-gray-400 font-semibold">Flujo Neto Final</p>
-          </div>
-        </div>
-      </div>
-
-      {/* ─── Arqueo de Divisas ─── */}
-      <div className="glass p-5">
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <Banknote className="w-4 h-4 text-accent" />
-          Arqueo de Divisas (Billetes en Caja)
-        </h3>
-        <div className="space-y-3">
-          {CURRENCIES.map((cur) => {
-            const stock = state.currencyStocks[cur];
-            const amount = stock.amount;
-            return (
-              <div
-                key={cur}
-                className="flex items-center justify-between p-3.5 bg-surface-2/40 rounded-xl border border-border/30"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-2xl select-none">{CURRENCY_FLAGS[cur]}</span>
-                  <div>
-                    <p className="text-sm font-bold text-white">{CURRENCY_LABELS[cur]}</p>
-                    <p className="text-xs text-gray-400">
-                      Costo prom: Gs. {stock.averageCost > 0 ? formatCurrency(stock.averageCost, 0) : '—'}
-                    </p>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-semibold text-white">
-                    {CURRENCY_SYMBOLS[cur]} {formatCurrency(amount, cur === 'ARS' ? 0 : 2)}
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    ≈ {formatPYG(amount * (stock.averageCost || 0))}
-                  </p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ─── Saldos Bancarios ─── */}
-      <div className="glass p-5">
-        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-          <Landmark className="w-4 h-4 text-accent" />
-          Saldos en Cuentas (Gs.)
-        </h3>
-        <div className="space-y-2.5">
-          <div className="flex items-center justify-between p-3 bg-surface-2/40 hover:bg-surface-2/60 transition-colors rounded-xl border border-emerald-500/20">
-            <div className="flex items-center gap-3">
-              <BankLogo account="Efectivo PYG" size="sm" />
-              <span className="text-sm font-medium text-gray-200">Efectivo Gs.</span>
+        {/* ─── Resultado ─── */}
+        <section className="card p-5 sm:p-7">
+          <p className="text-ink-2">Queda del día</p>
+          <p className={cn('money text-[40px] sm:text-5xl font-semibold leading-tight mt-1', net < 0 ? 'text-neg' : 'text-pos')}>
+            {signed(net)}
+          </p>
+          <dl className="mt-5 pt-5 border-t border-line space-y-3 text-base">
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-2">Ganancia por cambios</dt>
+              <dd className="money font-semibold text-ink">{signed(profit)}</dd>
             </div>
-            <span className="text-lg font-bold text-emerald-400 font-mono">
-              {formatPYG(state.accountBalances['Efectivo PYG'])}
-            </span>
-          </div>
-          {BANK_ACCOUNTS.map((bank) => {
-            return (
-              <div
-                key={bank}
-                className="flex items-center justify-between p-3 bg-surface-2/40 hover:bg-surface-2/60 transition-colors rounded-xl border border-white/5"
-              >
-                <div className="flex items-center gap-3">
-                  <BankLogo account={bank} size="sm" />
-                  <span className="text-sm font-medium text-gray-200">{bank}</span>
-                </div>
-                <span className="text-lg font-bold text-gray-100 font-mono">
-                  {formatPYG(state.accountBalances[bank])}
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-2">Gastos</dt>
+              <dd className="money font-semibold text-ink">−{formatPYG(expensesTotal)}</dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-ink-2">Operaciones</dt>
+              <dd className="text-ink tabular">
+                {ops.length}
+                <span className="text-ink-3">
+                  {' '}
+                  ({buys} compras, {sells} ventas)
                 </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+              </dd>
+            </div>
+          </dl>
+        </section>
 
-      {/* ─── Gastos del Día ─── */}
-      {dateExpenses > 0 && (
-        <div className="glass p-5">
-          <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-expense" />
-            Gastos de la Fecha
-          </h3>
-          <div className="space-y-2">
-            {dateOperations
-              .filter((op) => op.type === 'GASTO')
-              .map((op) => (
-                <div
-                  key={op.id}
-                  className="flex items-center justify-between p-3 bg-surface-2/40 rounded-xl"
-                >
-                  <span className="text-sm text-gray-300">{op.description || 'Gasto'}</span>
-                  <span className="text-sm font-bold text-expense">{formatPYG(op.totalPYG)}</span>
+        {expenses.length > 0 && (
+          <section>
+            <SectionHeader title="Gastos" />
+            <div className="card divide-y divide-line">
+              {expenses.map((op) => (
+                <div key={op.id} className="flex justify-between gap-4 px-5 py-3.5 text-base">
+                  <span className="text-ink-2 min-w-0 break-words">{op.description || 'Gasto'}</span>
+                  <span className="money text-ink whitespace-nowrap">{formatPYG(op.totalPYG)}</span>
                 </div>
               ))}
-            <div className="flex items-center justify-between p-3 bg-expense/10 rounded-xl border border-expense/20">
-              <span className="text-sm font-semibold text-expense">Total Gastos</span>
-              <span className="text-lg font-bold text-expense">{formatPYG(dateExpenses)}</span>
             </div>
+          </section>
+        )}
+
+        <section>
+          <SectionHeader title="Saldos actuales" />
+          <div className="card divide-y divide-line">
+            {accounts.map((a) => (
+              <div key={a} className="flex items-center gap-4 px-4 sm:px-5 py-3.5">
+                <BankLogo account={a} size="sm" />
+                <span className="flex-1 text-base text-ink">{name(a)}</span>
+                <span className="money text-lg text-ink whitespace-nowrap">{formatPYG(state.accountBalances[a] || 0)}</span>
+              </div>
+            ))}
+            {CURRENCIES.filter((c) => state.currencyStocks[c].amount > 0).map((c) => (
+              <div key={c} className="flex items-center gap-4 px-4 sm:px-5 py-3.5">
+                <span className="w-6 h-6 rounded-md bg-fill text-[10px] font-bold text-ink-2 flex items-center justify-center">
+                  {c}
+                </span>
+                <span className="flex-1 text-base text-ink">{CURRENCY_PLURAL[c]}</span>
+                <span className="money text-lg text-ink whitespace-nowrap">
+                  {CURRENCY_SYMBOLS[c]} {formatCurrency(state.currencyStocks[c].amount, c === 'ARS' ? 0 : 2)}
+                </span>
+              </div>
+            ))}
           </div>
+        </section>
+
+        <div className="pb-6">
+          <button
+            type="button"
+            onClick={copy}
+            className={cn(
+              'w-full h-14 rounded-xl inline-flex items-center justify-center gap-2 text-base font-semibold transition-colors',
+              copied ? 'bg-brand-soft text-brand' : 'bg-brand text-white hover:bg-brand-hover'
+            )}
+          >
+            {copied ? <Check className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+            {copied ? 'Copiado. Pegalo en WhatsApp' : 'Copiar resumen para WhatsApp'}
+          </button>
         </div>
-      )}
-
-
-      {/* ─── Botón Copiar para WhatsApp ─── */}
-      <button
-        onClick={handleCopy}
-        className={cn(
-          'w-full flex items-center justify-center gap-3 py-4 rounded-2xl font-semibold text-base transition-all duration-300',
-          copied
-            ? 'bg-profit/20 text-profit border border-profit/30'
-            : 'bg-whatsapp/90 text-white hover:bg-whatsapp shadow-lg shadow-whatsapp/20 active:scale-[0.98]'
-        )}
-      >
-        {copied ? (
-          <>
-            <CheckCircle2 className="w-5 h-5" />
-            ¡Copiado al portapapeles!
-          </>
-        ) : (
-          <>
-            <Copy className="w-5 h-5" />
-            Copiar Resumen para WhatsApp
-          </>
-        )}
-      </button>
-
-      <div className="h-4" />
+      </div>
     </div>
   );
 }
