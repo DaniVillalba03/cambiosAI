@@ -3,66 +3,6 @@ import { parseLocalFallback, detectCommand } from './local-parser';
 
 export { detectCommand };
 
-const GEMINI_SCHEMA = {
-  type: 'object' as const,
-  properties: {
-    isCommand: {
-      type: 'boolean' as const,
-      description: 'true si el usuario solicita un comando como ayuda, resumen, saldos, stock o anular',
-    },
-    command: {
-      type: 'string' as const,
-      enum: ['ayuda', 'resumen', 'saldos', 'stock', 'anular'],
-      description: 'Comando solicitado por el usuario',
-    },
-    transcription: {
-      type: 'string' as const,
-      description: 'Transcripción fiel del audio si se envió una nota de voz',
-    },
-    type: {
-      type: 'string' as const,
-      enum: ['COMPRA', 'VENTA', 'GASTO'],
-      description: 'Tipo de operación (no aplica para comandos)',
-    },
-    currency: {
-      type: 'string' as const,
-      enum: ['USD', 'BRL', 'ARS', 'EUR'],
-      description: 'Moneda extranjera (no aplica para GASTO ni comandos)',
-    },
-    amount: {
-      type: 'number' as const,
-      description: 'Cantidad de moneda extranjera (no aplica para GASTO ni comandos)',
-    },
-    rate: {
-      type: 'number' as const,
-      description: 'Cotización en Guaraníes por 1 unidad de moneda extranjera',
-    },
-    totalPYG: {
-      type: 'number' as const,
-      description: 'Total en Guaraníes (amount * rate, o monto del gasto)',
-    },
-    account: {
-      type: 'string' as const,
-      enum: [
-        'Efectivo PYG',
-        'Efectivo USD',
-        'Efectivo BRL',
-        'Efectivo ARS',
-        'Efectivo EUR',
-        'Itaú',
-        'Banco Familiar',
-        'BNF',
-        'Continental',
-      ],
-      description: 'Cuenta PYG utilizada para la operación',
-    },
-    description: {
-      type: 'string' as const,
-      description: 'Descripción del gasto (solo para GASTO)',
-    },
-  },
-};
-
 const SYSTEM_PROMPT = `Eres el asistente inteligente de un cambista (operador cambiario y financiero) en Paraguay. Tu trabajo es interpretar mensajes de texto, comprobantes de pago/transferencias bancarias (imágenes) y notas de voz (audios) en español paraguayo, y extraer la información estructurada de la transacción o ejecutar comandos.
 
 REGLAS DE NEGOCIO:
@@ -110,7 +50,88 @@ CÁLCULOS:
 - totalPYG = amount * rate (para COMPRA y VENTA)
 - Para GASTO, totalPYG es el monto de la transferencia o gasto
 
-Siempre responde SOLO con el JSON estructurado. No agregues texto adicional.`;
+FORMATO DE RESPUESTA (JSON, sin texto adicional). Incluí SIEMPRE todos los campos que correspondan:
+- Operación: {"isCommand": false, "type": "COMPRA"|"VENTA"|"GASTO", "currency": "USD"|"BRL"|"ARS"|"EUR" (no en GASTO), "amount": número (cantidad de divisa, no en GASTO), "rate": número (Gs. por unidad, no en GASTO), "totalPYG": número (OBLIGATORIO: monto total en guaraníes sin puntos), "account": cuenta válida, "description": texto (en GASTO: concepto o beneficiario), "transcription": texto (solo si hubo audio)}
+- Comando: {"isCommand": true, "command": "ayuda"|"resumen"|"saldos"|"stock"|"anular", "transcription": texto (solo si hubo audio)}
+- Los montos son números puros: "Gs. 2.350.000" → 2350000.`;
+
+type GeminiPart = { text: string } | { inlineData: { mimeType: string; data: string } };
+
+/**
+ * Modelos gratuitos en orden de preferencia (medidos en nov-2026 con la clave del proyecto):
+ * - gemini-3.5-flash-lite: ~1 s en texto e imágenes, lee comprobantes correctamente.
+ * - gemini-3.1-flash-lite: ~1,3 s, mismo nivel de precisión. Respaldo con cuota separada.
+ * - gemini-3-flash-preview: ~2,5 s, modelo "flash" completo para casos difíciles.
+ * gemini-3.5-flash (el que se usaba para imágenes/audio) tardaba 4–16 s y provocaba timeouts.
+ * Se puede sobrescribir con GEMINI_MODELS="modelo1,modelo2".
+ */
+const DEFAULT_MODELS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite', 'gemini-3-flash-preview'];
+
+function getModelChain(): string[] {
+  const custom = (process.env.GEMINI_MODELS || '')
+    .split(',')
+    .map((m) => m.trim())
+    .filter(Boolean);
+  return custom.length > 0 ? custom : DEFAULT_MODELS;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Llama a Gemini probando cada modelo de la cadena. Si uno devuelve error (429 por límite
+ * del plan gratuito, 503 por saturación), tarda demasiado o responde JSON inválido,
+ * pasa al siguiente. Todo dentro de un presupuesto de tiempo para no superar el límite de Vercel.
+ */
+async function generateWithFallback(
+  apiKey: string,
+  parts: GeminiPart[],
+  hasMedia: boolean
+): Promise<AgentResponse | null> {
+  const { GoogleGenAI } = await import('@google/genai');
+  const ai = new GoogleGenAI({ apiKey });
+
+  const perAttemptMs = hasMedia ? 20000 : 10000;
+  const budgetMs = hasMedia ? 45000 : 25000;
+  const started = Date.now();
+  const models = getModelChain();
+
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
+    const remaining = budgetMs - (Date.now() - started);
+    if (remaining < 2000) break;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timeout ${model}`)), Math.min(perAttemptMs, remaining));
+      });
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model,
+          contents: [{ role: 'user', parts }],
+          // Sin responseSchema estricto: con esquema los modelos lite omitían el monto de los
+          // comprobantes. El formato va explícito en el prompt y se valida después.
+          config: { responseMimeType: 'application/json', temperature: 0 },
+        }),
+        timeout,
+      ]);
+      const text = response.text;
+      if (!text) throw new Error('respuesta vacía');
+      const parsed = JSON.parse(text) as AgentResponse;
+      if (i > 0) console.log(`✅ [GEMINI] Respondió el modelo de respaldo ${model}`);
+      return parsed;
+    } catch (err: any) {
+      const status = err?.status || err?.code || '';
+      console.warn(`⚠️ [GEMINI] ${model} falló (${status} ${String(err?.message || err).slice(0, 120)})`);
+      // Pequeña espera ante saturación/límite antes de probar el siguiente modelo
+      if (String(status).startsWith('5') || status === 429) await sleep(400);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  console.error('❌ [GEMINI] Ningún modelo respondió a tiempo');
+  return null;
+}
 
 export interface MediaInput {
   imageBase64?: string;
@@ -163,94 +184,48 @@ export async function parseOperationWithAIOrFallback(
 
   const apiKey = process.env.GEMINI_API_KEY;
 
-  // 2. Procesamiento con Gemini Multimodal
+  // 2. Procesamiento con Gemini (texto, comprobantes y audios) con modelos de respaldo
   if (apiKey && (cleanText || mediaObj.imageBase64 || mediaObj.audioBase64)) {
-    try {
-      const { GoogleGenAI } = await import('@google/genai');
-      const ai = new GoogleGenAI({ apiKey });
+    const parts: GeminiPart[] = [];
+    let userPrompt = SYSTEM_PROMPT;
+    const hasMedia = !!(mediaObj.audioBase64 || mediaObj.imageBase64);
 
-      const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+    if (mediaObj.audioBase64) {
+      userPrompt += cleanText
+        ? `\n\nNota de voz del usuario con texto adjunto: "${cleanText}". Escucha el audio, transcríbelo en "transcription" y extrae la operación:`
+        : '\n\nNota de voz del usuario. Escucha atentamente el audio, transcríbelo en "transcription" y extrae la operación cambiaria o comando:';
+      parts.push({ text: userPrompt });
+      parts.push({ inlineData: { mimeType: mediaObj.audioMimeType || 'audio/ogg', data: mediaObj.audioBase64 } });
+    } else if (mediaObj.imageBase64) {
+      userPrompt += cleanText
+        ? `\n\nComprobante de pago o transferencia bancaria enviado por el usuario con mensaje: "${cleanText}". Analiza los datos del comprobante y extrae la operación:`
+        : '\n\nComprobante de pago o transferencia bancaria enviado por el usuario. Analiza el comprobante (banco, monto, destinatario/concepto) y extrae la operación:';
+      parts.push({ text: userPrompt });
+      parts.push({ inlineData: { mimeType: mediaObj.imageMimeType || 'image/jpeg', data: mediaObj.imageBase64 } });
+    } else {
+      userPrompt += `\n\nMensaje del cambista: "${cleanText}"`;
+      parts.push({ text: userPrompt });
+    }
 
-      let userPrompt = SYSTEM_PROMPT;
-      let model = 'gemini-3.5-flash-lite';
-      let timeoutMs = 8000;
-
-      if (mediaObj.audioBase64) {
-        model = 'gemini-3.5-flash';
-        timeoutMs = 20000;
-        userPrompt += cleanText
-          ? `\n\nNota de voz del usuario con texto adjunto: "${cleanText}". Escucha el audio, transcríbelo en "transcription" y extrae la operación:`
-          : '\n\nNota de voz del usuario. Escucha atentamente el audio, transcríbelo en "transcription" y extrae la operación cambiaria o comando:';
-        parts.push({ text: userPrompt });
-        parts.push({
-          inlineData: {
-            mimeType: mediaObj.audioMimeType || 'audio/ogg',
-            data: mediaObj.audioBase64,
-          },
-        });
-      } else if (mediaObj.imageBase64) {
-        model = 'gemini-3.5-flash';
-        timeoutMs = 20000;
-        userPrompt += cleanText
-          ? `\n\nComprobante de pago o transferencia bancaria enviado por el usuario con mensaje: "${cleanText}". Analiza los datos del comprobante y extrae la operación:`
-          : '\n\nComprobante de pago o transferencia bancaria enviado por el usuario. Analiza el comprobante (banco, monto, destinatario/concepto) y extrae la operación:';
-        parts.push({ text: userPrompt });
-        parts.push({
-          inlineData: {
-            mimeType: mediaObj.imageMimeType || 'image/jpeg',
-            data: mediaObj.imageBase64,
-          },
-        });
-      } else {
-        userPrompt += `\n\nMensaje del cambista: "${cleanText}"`;
-        parts.push({ text: userPrompt });
+    const parsed = await generateWithFallback(apiKey, parts, hasMedia);
+    if (parsed) {
+      if (parsed.isCommand && parsed.command) {
+        return {
+          success: true,
+          source: 'gemini',
+          isCommand: true,
+          command: parsed.command,
+          transcription: parsed.transcription,
+          operation: parsed,
+        };
       }
-
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('Gemini timeout')), timeoutMs)
-      );
-
-      const response = await Promise.race([
-        ai.models.generateContent({
-          model,
-          contents: [{ role: 'user', parts }],
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: GEMINI_SCHEMA,
-          },
-        }),
-        timeoutPromise,
-      ]);
-
-      const resultText = response.text;
-      if (resultText) {
-        const parsed = JSON.parse(resultText) as AgentResponse;
-
-        // Si en el audio o comprobante se detectó un comando
-        if (parsed.isCommand && parsed.command) {
-          return {
-            success: true,
-            source: 'gemini',
-            isCommand: true,
-            command: parsed.command,
-            transcription: parsed.transcription,
-            operation: parsed,
-          };
-        }
-
-        if (parsed.type && parsed.account) {
-          return {
-            success: true,
-            operation: parsed,
-            source: 'gemini',
-            transcription: parsed.transcription,
-          };
-        }
+      // La cuenta puede faltar (no se mencionó banco): se usa Efectivo PYG al validar.
+      if (parsed.type) {
+        return { success: true, operation: parsed, source: 'gemini', transcription: parsed.transcription };
       }
-    } catch (aiErr) {
-      console.warn('⚠️ Gemini multimodal warning, evaluando fallback:', aiErr);
     }
   }
+
 
   // 3. Parser local de respaldo si hay texto disponible
   if (cleanText) {

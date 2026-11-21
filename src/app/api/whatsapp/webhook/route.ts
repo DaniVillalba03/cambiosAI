@@ -113,6 +113,26 @@ function extractWhatsAppMessage(body: any): ExtractedMessage | null {
 }
 
 /**
+ * fetch con reintentos ante errores de red, 429 o 5xx de Meta (fallos momentáneos).
+ * No reintenta errores 4xx "reales" (token inválido, número no permitido, etc.).
+ */
+async function fetchWithRetry(url: string, init: RequestInit, attempts = 3): Promise<Response> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, { ...init, signal: AbortSignal.timeout(15000) });
+      if (res.status !== 429 && res.status < 500) return res;
+      lastError = new Error(`HTTP ${res.status}`);
+      if (i === attempts - 1) return res;
+    } catch (err) {
+      lastError = err;
+    }
+    await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+  }
+  throw lastError;
+}
+
+/**
  * Descarga archivos multimedia (comprobantes o notas de voz) desde Meta usando el mediaId.
  */
 async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string; mimeType: string } | null> {
@@ -120,7 +140,7 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string;
   if (!token || !mediaId) return null;
 
   try {
-    const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
+    const metaRes = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${mediaId}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!metaRes.ok) {
@@ -131,7 +151,7 @@ async function downloadWhatsAppMedia(mediaId: string): Promise<{ base64: string;
     const metaData = await metaRes.json();
     if (!metaData.url) return null;
 
-    const fileRes = await fetch(metaData.url, {
+    const fileRes = await fetchWithRetry(metaData.url, {
       headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'curl/7.64.1' },
     });
     if (!fileRes.ok) {
@@ -162,7 +182,7 @@ async function sendWhatsAppMessage(to: string, text: string, phoneNumberId?: str
 
   const cleanTo = to.replace(/\D/g, '');
   try {
-    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPhoneId}/messages`, {
+    const res = await fetchWithRetry(`https://graph.facebook.com/${GRAPH_VERSION}/${targetPhoneId}/messages`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
